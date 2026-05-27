@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.2",
     "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.0",
     "expo-file-system": "~19.0.22",

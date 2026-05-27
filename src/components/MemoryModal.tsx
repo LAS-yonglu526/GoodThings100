@@ -69,7 +69,7 @@ export default function MemoryModal({ visible, item, onClose, onSaved }: MemoryM
     if (isSaving) return;
     setIsSaving(true);
     try {
-      await updateItemMemory(item.id, memoryText, JSON.stringify(mediaUris));
+      await updateItemMemory(item.id, item.listId, memoryText, JSON.stringify(mediaUris));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSaved();
     } catch (err: any) {

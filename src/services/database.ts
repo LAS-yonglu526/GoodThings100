@@ -1,6 +1,17 @@
 import * as SQLite from 'expo-sqlite';
 
-// 数据表类型定义
+// ====== 类型定义 ======
+export interface GoodList {
+  id: string;
+  userId: string;
+  title: string;
+  themeType: string;
+  iconEmoji: string;
+  coverColor: string;
+  itemLimit: number;
+  createdAt: string;
+}
+
 export interface GoodItem {
   id: string;
   listId: string;
@@ -8,124 +19,206 @@ export interface GoodItem {
   status: 'pending' | 'completed';
   completedAt: string | null;
   memoryText: string;
-  mediaUris: string; // JSON 字符串数组
+  mediaUris: string;
 }
-
-// 10条测试数据
-const SEED_DATA: Omit<GoodItem, 'listId' | 'status' | 'completedAt' | 'memoryText' | 'mediaUris'>[] = [
-  { id: 'item_001', title: '一起去海边看日出' },
-  { id: 'item_002', title: '给对方写一封手写信' },
-  { id: 'item_003', title: '一起做一顿烛光晚餐' },
-  { id: 'item_004', title: '深夜聊到凌晨三点' },
-  { id: 'item_005', title: '一起养一盆多肉植物' },
-  { id: 'item_006', title: '雨天窝在家看一部老电影' },
-  { id: 'item_007', title: '一起看一次演唱会' },
-  { id: 'item_008', title: '互相给对方取一个外号' },
-  { id: 'item_009', title: '逛一次深夜便利店' },
-  { id: 'item_010', title: '一起坐摩天轮到最高点' },
-];
 
 let db: SQLite.SQLiteDatabase | null = null;
 
-/**
- * 初始化数据库连接并创建表
- */
+// ====== 初始化 ======
 export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
 
   db = await SQLite.openDatabaseAsync('goodthings.db');
 
-  // 创建数据表
   await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS lists (
+      id TEXT PRIMARY KEY NOT NULL,
+      userId TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL,
+      themeType TEXT NOT NULL DEFAULT 'custom',
+      iconEmoji TEXT NOT NULL DEFAULT '✨',
+      coverColor TEXT NOT NULL DEFAULT '#E8ECF1',
+      itemLimit INTEGER NOT NULL DEFAULT 100,
+      createdAt TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS good_items (
       id TEXT PRIMARY KEY NOT NULL,
-      listId TEXT NOT NULL DEFAULT 'list_default',
+      listId TEXT NOT NULL,
       title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'completed')),
       completedAt TEXT,
       memoryText TEXT NOT NULL DEFAULT '',
-      mediaUris TEXT NOT NULL DEFAULT '[]'
+      mediaUris TEXT NOT NULL DEFAULT '[]',
+      FOREIGN KEY (listId) REFERENCES lists(id) ON DELETE CASCADE
     );
   `);
 
-  // 检查是否需要插入种子数据
-  const countResult = await db.getFirstAsync<{ cnt: number }>(
-    'SELECT COUNT(*) as cnt FROM good_items'
-  );
-  if (countResult && countResult.cnt === 0) {
-    await seedDatabase(db);
-  }
-
   return db;
 }
 
-/**
- * 插入10条测试数据
- */
-async function seedDatabase(database: SQLite.SQLiteDatabase): Promise<void> {
-  for (const item of SEED_DATA) {
+function getDB(): SQLite.SQLiteDatabase {
+  if (!db) throw new Error('数据库未初始化');
+  return db;
+}
+
+// ====== List CRUD ======
+export async function createList(
+  id: string,
+  title: string,
+  themeType: string,
+  iconEmoji: string,
+  coverColor: string,
+  itemLimit: number
+): Promise<void> {
+  const database = getDB();
+  await database.runAsync(
+    'INSERT INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, '', title, themeType, iconEmoji, coverColor, itemLimit, new Date().toISOString()]
+  );
+}
+
+export async function getAllLists(): Promise<GoodList[]> {
+  const database = getDB();
+  return database.getAllAsync<GoodList>('SELECT * FROM lists ORDER BY createdAt DESC');
+}
+
+export async function updateListTitle(id: string, title: string): Promise<void> {
+  const database = getDB();
+  await database.runAsync('UPDATE lists SET title = ? WHERE id = ?', [title, id]);
+}
+
+export async function deleteList(id: string): Promise<void> {
+  const database = getDB();
+  await database.runAsync('DELETE FROM good_items WHERE listId = ?', [id]);
+  await database.runAsync('DELETE FROM lists WHERE id = ?', [id]);
+}
+
+/** 批量导入模板条目 */
+export async function bulkInsertItems(
+  listId: string,
+  titles: string[]
+): Promise<void> {
+  const database = getDB();
+  for (let i = 0; i < titles.length; i++) {
+    const id = `${listId}_${String(i + 1).padStart(3, '0')}`;
     await database.runAsync(
-      `INSERT INTO good_items (id, listId, title, status, completedAt, memoryText, mediaUris)
-       VALUES (?, ?, ?, 'pending', NULL, '', '[]')`,
-      [item.id, 'list_couple_100', item.title]
+      'INSERT INTO good_items (id, listId, title) VALUES (?, ?, ?)',
+      [id, listId, titles[i]]
     );
   }
 }
 
-/**
- * 获取数据库实例（需先调用 initDatabase）
- */
-export function getDatabase(): SQLite.SQLiteDatabase {
-  if (!db) {
-    throw new Error('数据库未初始化，请先调用 initDatabase()');
-  }
-  return db;
-}
-
-/**
- * 获取所有事项列表
- */
-export async function getAllItems(): Promise<GoodItem[]> {
-  const database = getDatabase();
-  const rows = await database.getAllAsync<GoodItem>(
-    'SELECT * FROM good_items ORDER BY id ASC'
+// ====== Item CRUD ======
+export async function getItemsByList(listId: string): Promise<GoodItem[]> {
+  const database = getDB();
+  return database.getAllAsync<GoodItem>(
+    'SELECT * FROM good_items WHERE listId = ? ORDER BY id ASC',
+    [listId]
   );
-  return rows;
 }
 
-/**
- * 更新事项状态
- */
+export async function getAllItems(): Promise<GoodItem[]> {
+  const database = getDB();
+  return database.getAllAsync<GoodItem>('SELECT * FROM good_items ORDER BY id ASC');
+}
+
 export async function updateItemStatus(
   id: string,
+  listId: string,
   status: 'pending' | 'completed'
 ): Promise<void> {
-  const database = getDatabase();
+  const database = getDB();
   const completedAt = status === 'completed' ? new Date().toISOString() : null;
   await database.runAsync(
-    'UPDATE good_items SET status = ?, completedAt = ? WHERE id = ?',
-    [status, completedAt, id]
+    'UPDATE good_items SET status = ?, completedAt = ? WHERE id = ? AND listId = ?',
+    [status, completedAt, id, listId]
   );
 }
 
-/**
- * 更新事项的手记和媒体
- */
+export async function updateItemTitle(
+  id: string,
+  listId: string,
+  title: string
+): Promise<void> {
+  const database = getDB();
+  await database.runAsync(
+    'UPDATE good_items SET title = ? WHERE id = ? AND listId = ?',
+    [title, id, listId]
+  );
+}
+
+export async function deleteItem(id: string, listId: string): Promise<void> {
+  const database = getDB();
+  await database.runAsync('DELETE FROM good_items WHERE id = ? AND listId = ?', [
+    id,
+    listId,
+  ]);
+}
+
+export async function addItem(listId: string, title: string): Promise<void> {
+  const database = getDB();
+  const id = `${listId}_${Date.now()}`;
+  await database.runAsync(
+    'INSERT INTO good_items (id, listId, title) VALUES (?, ?, ?)',
+    [id, listId, title]
+  );
+}
+
 export async function updateItemMemory(
   id: string,
+  listId: string,
   memoryText: string,
   mediaUris: string
 ): Promise<void> {
-  const database = getDatabase();
+  const database = getDB();
   await database.runAsync(
-    'UPDATE good_items SET memoryText = ?, mediaUris = ? WHERE id = ?',
-    [memoryText, mediaUris, id]
+    'UPDATE good_items SET memoryText = ?, mediaUris = ? WHERE id = ? AND listId = ?',
+    [memoryText, mediaUris, id, listId]
   );
 }
 
-/**
- * 关闭数据库
- */
+/** 获取 listId 下当前条目数 */
+export async function getItemCount(listId: string): Promise<number> {
+  const database = getDB();
+  const r = await database.getFirstAsync<{ cnt: number }>(
+    'SELECT COUNT(*) as cnt FROM good_items WHERE listId = ?',
+    [listId]
+  );
+  return r?.cnt ?? 0;
+}
+
+// ====== 导出全部数据（用于备份） ======
+export async function exportAllData(): Promise<{ lists: GoodList[]; items: GoodItem[] }> {
+  const lists = await getAllLists();
+  const items = await getAllItems();
+  return { lists, items };
+}
+
+/** 恢复数据（覆盖本地） */
+export async function importData(
+  lists: GoodList[],
+  items: GoodItem[]
+): Promise<void> {
+  const database = getDB();
+  await database.execAsync('DELETE FROM good_items');
+  await database.execAsync('DELETE FROM lists');
+
+  for (const l of lists) {
+    await database.runAsync(
+      'INSERT INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [l.id, l.userId || '', l.title, l.themeType, l.iconEmoji, l.coverColor, l.itemLimit, l.createdAt]
+    );
+  }
+
+  for (const i of items) {
+    await database.runAsync(
+      'INSERT INTO good_items (id, listId, title, status, completedAt, memoryText, mediaUris) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [i.id, i.listId, i.title, i.status, i.completedAt, i.memoryText, i.mediaUris]
+    );
+  }
+}
+
 export async function closeDatabase(): Promise<void> {
   if (db) {
     await db.closeAsync();
