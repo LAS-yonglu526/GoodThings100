@@ -10,7 +10,8 @@ import {
   View,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { sendPhoneOTP, verifyPhoneOTP, signOut, getCurrentUserId, backupToCloud, restoreFromCloud } from '../services/auth';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import { sendEmailOTP, verifyEmailOTP, signOut, getCurrentUserId, backupToCloud, restoreFromCloud } from '../services/auth';
 import { exportAllData, importData } from '../services/database';
 
 interface Props {
@@ -20,27 +21,48 @@ interface Props {
 export default function SettingsScreen({ onBack }: Props) {
   const [userId, setUserId] = useState<string | null>(null);
   const [showLogin, setShowLogin] = useState(false);
-  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
-  const [step, setStep] = useState<'phone' | 'otp'>('phone');
+  const [step, setStep] = useState<'email' | 'otp'>('email');
   const [busy, setBusy] = useState(false);
 
   React.useEffect(() => { getCurrentUserId().then(setUserId); }, []);
 
+  // 🍎 Apple 登录占坑 — 前端 UI 完整但后端延迟绑定
+  const handleAppleSignIn = () => {
+    Alert.alert('🍎 敬请期待', 'Apple 登录底层逻辑已就绪，这套专属的高级系统将在正式部署上架后解锁~');
+    // ---- 真实代码，未来取消注释即可激活 ----
+    // try {
+    //   const credential = await AppleAuthentication.signInAsync({
+    //     requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
+    //   });
+    //   const { identityToken } = credential;
+    //   if (identityToken) {
+    //     const { data: { user }, error } = await supabase.auth.signInWithIdToken({ provider: 'apple', token: identityToken });
+    //     if (error) throw error;
+    //     setUserId(user?.id ?? null);
+    //     Alert.alert('登录成功');
+    //   }
+    // } catch (e: any) {
+    //   if (e.code === 'ERR_REQUEST_CANCELED') { /* user cancelled */ }
+    //   else Alert.alert('登录失败', e.message);
+    // }
+    // -----------------------------------------
+  };
+
   const handleSendOTP = async () => {
-    if (!phone.trim()) { Alert.alert('请输入手机号'); return; }
+    if (!email.trim() || !email.includes('@')) { Alert.alert('请输入有效邮箱'); return; }
     setBusy(true);
-    const { error } = await sendPhoneOTP(`+86${phone.trim()}`);
+    const { error } = await sendEmailOTP(email.trim());
     setBusy(false);
-    if (error) {
-      Alert.alert('发送失败', error + '\n\n💡 提示：需在 Supabase 后台配置短信供应商（Twilio等）并充值。');
-    } else { setStep('otp'); Alert.alert('已发送', '请输入验证码'); }
+    if (error) Alert.alert('发送失败', error);
+    else { setStep('otp'); Alert.alert('已发送', '请检查邮箱验证码'); }
   };
 
   const handleVerify = async () => {
     if (!otp.trim()) { Alert.alert('请输入验证码'); return; }
     setBusy(true);
-    const { error, userId: uid } = await verifyPhoneOTP(`+86${phone.trim()}`, otp.trim());
+    const { error, userId: uid } = await verifyEmailOTP(email.trim(), otp.trim());
     setBusy(false);
     if (error) { Alert.alert('验证失败', error); }
     else { setUserId(uid || null); setShowLogin(false); Alert.alert('登录成功'); }
@@ -106,9 +128,23 @@ export default function SettingsScreen({ onBack }: Props) {
                 <TouchableOpacity style={ss.logoutBtn} onPress={handleLogout}><Text style={ss.logoutText}>退出</Text></TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity style={ss.loginBtn} onPress={() => { setShowLogin(true); setStep('phone'); setPhone(''); setOtp(''); }}>
-                <Text style={ss.loginBtnText}>手机号登录</Text><Text style={ss.loginHint}>登录后可备份与恢复数据</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity style={ss.loginBtn} onPress={() => { setShowLogin(true); setStep('email'); setEmail(''); setOtp(''); }}>
+                  <Text style={ss.loginBtnText}>邮箱登录</Text><Text style={ss.loginHint}>登录后可备份与恢复数据</Text>
+                </TouchableOpacity>
+                <View style={ss.appleSep}>
+                  <View style={ss.appleSepLine} /><Text style={ss.appleSepText}> 或 </Text><View style={ss.appleSepLine} />
+                </View>
+                {Platform.OS === 'ios' && (
+                  <AppleAuthentication.AppleAuthenticationButton
+                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                    cornerRadius={14}
+                    style={ss.appleBtn}
+                    onPress={handleAppleSignIn}
+                  />
+                )}
+              </>
             )}
           </View>
           <View style={ss.section}>
@@ -129,18 +165,18 @@ export default function SettingsScreen({ onBack }: Props) {
         <View style={ss.loginOverlay}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <View style={ss.loginModal}>
-              <Text style={ss.loginTitle}>手机号登录</Text>
-              {step === 'phone' ? (
+              <Text style={ss.loginTitle}>邮箱登录</Text>
+              {step === 'email' ? (
                 <>
-                  <TextInput style={ss.loginInput} placeholder="输入手机号" placeholderTextColor="#B2BEC3" keyboardType="phone-pad" value={phone} onChangeText={setPhone} maxLength={11} />
+                  <TextInput style={ss.loginInput} placeholder="输入邮箱" placeholderTextColor="#B2BEC3" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} />
                   <TouchableOpacity style={ss.loginActionBtn} onPress={handleSendOTP} disabled={busy}><Text style={ss.loginActionText}>{busy ? '发送中...' : '获取验证码'}</Text></TouchableOpacity>
                 </>
               ) : (
                 <>
-                  <Text style={ss.phoneHint}>已发送验证码至 +86 {phone}</Text>
+                  <Text style={ss.phoneHint}>已发送验证码至 {email}</Text>
                   <TextInput style={ss.loginInput} placeholder="输入验证码" placeholderTextColor="#B2BEC3" keyboardType="number-pad" value={otp} onChangeText={setOtp} maxLength={6} />
                   <TouchableOpacity style={ss.loginActionBtn} onPress={handleVerify} disabled={busy}><Text style={ss.loginActionText}>{busy ? '验证中...' : '验证登录'}</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => setStep('phone')}><Text style={ss.backToPhone}>重新输入手机号</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setStep('email')}><Text style={ss.backToPhone}>重新输入邮箱</Text></TouchableOpacity>
                 </>
               )}
               <TouchableOpacity onPress={() => setShowLogin(false)}><Text style={ss.loginCancel}>取消</Text></TouchableOpacity>
@@ -199,4 +235,8 @@ const ss = StyleSheet.create({
   loginActionText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   backToPhone: { fontSize: 13, color: '#636E72', marginBottom: 8 },
   loginCancel: { fontSize: 14, color: '#7A8A9E', marginTop: 8, fontWeight: '500' },
+  appleSep: { flexDirection: 'row', alignItems: 'center', marginTop: 18, marginBottom: 12 },
+  appleSepLine: { flex: 1, height: 1, backgroundColor: 'rgba(45,52,54,0.08)' },
+  appleSepText: { fontSize: 12, color: '#B2BEC3', fontWeight: '500' },
+  appleBtn: { width: '100%', height: 50 },
 });

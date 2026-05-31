@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  InteractionManager,
   LayoutAnimation,
   PanResponder,
   Platform,
@@ -114,19 +115,23 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
 
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectDimAnim = useRef(new Animated.Value(0)).current; // 0=正常 1=暗化
+  const batchCacheRef = useRef<{ type: 'complete' | 'delete'; ids: string[]; prevItems: GoodItem[] } | null>(null);
+  const [batchUndoLabel, setBatchUndoLabel] = useState('');
+  const batchUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoShownRef = useRef(false); // 防止重复弹出
 
-  // 🎉 全部完成庆祝动画
   const [showCelebration, setShowCelebration] = useState(false);
   const celebScale = useRef(new Animated.Value(0)).current;
   const celebOpacity = useRef(new Animated.Value(0)).current;
-  const celebEmojis = useRef<{ x: number; y: number; emoji: string; delay: number }[]>([]);
+  const celebParticlesRef = useRef<{ tx: number; ty: number; emoji: string; x: Animated.Value; y: Animated.Value; sc: Animated.Value; rot: Animated.Value; op: Animated.Value }[]>([]);
+  const celebAnimsRef = useRef<Animated.CompositeAnimation[]>([]);
 
-  // 🔧 胶囊果冻删除
   const [deletingCapsuleId, setDeletingCapsuleId] = useState<string | null>(null);
   const capsuleDelScale = useRef(new Animated.Value(1)).current;
   const capsuleDelOpacity = useRef(new Animated.Value(1)).current;
+  const bounceRefs = useRef<Map<string, { x: Animated.Value; y: Animated.Value }>>(new Map());
 
-  // 🔧 拖拽插位指示器 — 全部 JS 驱动 (left/top/width/height 不支持 native)
   const dropLeft = useRef(new Animated.Value(0)).current;
   const dropTop = useRef(new Animated.Value(0)).current;
   const dropW = useRef(new Animated.Value(60)).current;
@@ -134,70 +139,28 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
   const dropOpa = useRef(new Animated.Value(0)).current;
 
   const moveDropIndicator = useCallback((targetIndex: number | null) => {
-    if (targetIndex === null || targetIndex < 0) {
-      Animated.timing(dropOpa, { toValue: 0, duration: 120, useNativeDriver: false }).start();
-      return;
-    }
-    const curItems = itemsRef.current;
-    const ci = curItems[targetIndex];
-    if (!ci?.id) return;
-    const ly = layoutMapRef.current.get(ci.id);
-    if (!ly) return;
-
+    if (targetIndex === null || targetIndex < 0) { Animated.timing(dropOpa, { toValue: 0, duration: 120, useNativeDriver: false }).start(); return; }
+    const curItems = itemsRef.current; const ci = curItems[targetIndex]; if (!ci?.id) return;
+    const ly = layoutMapRef.current.get(ci.id); if (!ly) return;
     const isG = getLayoutMode(curItems.length) === 'gallery';
     const fStyles = isG ? null : getFluidStyles(curItems.length);
     const gap = isG ? GALLERY_STYLES.gap : (fStyles?.gap ?? 8);
-
     if (isG) {
-      Animated.parallel([
-        Animated.spring(dropLeft, { toValue: scrollLeftRef.current + 12 + ly.x, useNativeDriver: false }),
-        Animated.spring(dropTop, { toValue: scrollTopRef.current + ly.y - scrollYRef.current - gap / 2 - 3, useNativeDriver: false }),
-        Animated.timing(dropW, { toValue: ly.w, duration: 150, useNativeDriver: false }),
-        Animated.timing(dropH, { toValue: 6, duration: 100, useNativeDriver: false }),
-        Animated.timing(dropOpa, { toValue: 1, duration: 120, useNativeDriver: false }),
-      ]).start();
+      Animated.parallel([Animated.spring(dropLeft, { toValue: scrollLeftRef.current + 12 + ly.x, useNativeDriver: false }), Animated.spring(dropTop, { toValue: scrollTopRef.current + ly.y - scrollYRef.current - gap / 2 - 3, useNativeDriver: false }), Animated.timing(dropW, { toValue: ly.w, duration: 150, useNativeDriver: false }), Animated.timing(dropH, { toValue: 6, duration: 100, useNativeDriver: false }), Animated.timing(dropOpa, { toValue: 1, duration: 120, useNativeDriver: false })]).start();
     } else {
-      Animated.parallel([
-        Animated.spring(dropLeft, { toValue: scrollLeftRef.current + 12 + ly.x - gap / 2 - 3, useNativeDriver: false }),
-        Animated.spring(dropTop, { toValue: scrollTopRef.current + ly.y - scrollYRef.current + 2, useNativeDriver: false }),
-        Animated.timing(dropW, { toValue: 6, duration: 100, useNativeDriver: false }),
-        Animated.timing(dropH, { toValue: ly.h - 4, duration: 150, useNativeDriver: false }),
-        Animated.timing(dropOpa, { toValue: 1, duration: 120, useNativeDriver: false }),
-      ]).start();
+      Animated.parallel([Animated.spring(dropLeft, { toValue: scrollLeftRef.current + 12 + ly.x - gap / 2 - 3, useNativeDriver: false }), Animated.spring(dropTop, { toValue: scrollTopRef.current + ly.y - scrollYRef.current + 2, useNativeDriver: false }), Animated.timing(dropW, { toValue: 6, duration: 100, useNativeDriver: false }), Animated.timing(dropH, { toValue: ly.h - 4, duration: 150, useNativeDriver: false }), Animated.timing(dropOpa, { toValue: 1, duration: 120, useNativeDriver: false })]).start();
     }
   }, [dropLeft, dropTop, dropW, dropH, dropOpa]);
 
-  // 🔧 深海水母光晕
   const haloDriver = useRef(new Animated.Value(0)).current;
   const haloLoopRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  const startHalo = useCallback(() => {
-    haloLoopRef.current?.stop();
-    haloDriver.setValue(0);
-    haloLoopRef.current = Animated.loop(
-      Animated.sequence([
-        Animated.timing(haloDriver, { toValue: 1, duration: 1600, useNativeDriver: true }),
-        Animated.timing(haloDriver, { toValue: 0, duration: 1600, useNativeDriver: true }),
-      ]),
-    );
-    haloLoopRef.current.start();
-  }, [haloDriver]);
-
-  const stopHalo = useCallback(() => {
-    haloLoopRef.current?.stop();
-    haloLoopRef.current = null;
-    haloDriver.setValue(0);
-  }, [haloDriver]);
-
+  const startHalo = useCallback(() => { haloLoopRef.current?.stop(); haloDriver.setValue(0); haloLoopRef.current = Animated.loop(Animated.sequence([Animated.timing(haloDriver, { toValue: 1, duration: 1600, useNativeDriver: true }), Animated.timing(haloDriver, { toValue: 0, duration: 1600, useNativeDriver: true })])); haloLoopRef.current.start(); }, [haloDriver]);
+  const stopHalo = useCallback(() => { haloLoopRef.current?.stop(); haloLoopRef.current = null; haloDriver.setValue(0); }, [haloDriver]);
   const haloOpacity = haloDriver.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] });
   const haloScale = haloDriver.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
-
   const isExiting = useRef(false);
 
-  const load = useCallback(async () => {
-    const d = await getItemsByList(listId); setItems(d);
-    const ls = await getAllLists(); setListInfo(ls.find(l => l.id === listId) || null); setLoading(false);
-  }, [listId]);
+  const load = useCallback(async () => { const d = await getItemsByList(listId); setItems(d); const ls = await getAllLists(); setListInfo(ls.find(l => l.id === listId) || null); setLoading(false); }, [listId]);
   useEffect(() => { initDatabase().then(() => load()); }, [load]);
 
   const animateAndRefresh = async () => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); await load(); };
@@ -205,68 +168,94 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
   const showUndo = useCallback((prevItems: GoodItem[]) => {
     if (undoTimer.current) { clearTimeout(undoTimer.current); }
     setUndoItems(prevItems);
-    undoSlideAnim.setValue(-80);
-    undoFadeAnim.setValue(0);
-    Animated.parallel([
-      Animated.spring(undoSlideAnim, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }),
-      Animated.timing(undoFadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
-    ]).start();
-    undoTimer.current = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(undoSlideAnim, { toValue: -80, duration: 200, useNativeDriver: true }),
-        Animated.timing(undoFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]).start(() => setUndoItems(null));
-    }, 5000);
+    undoSlideAnim.setValue(-80); undoFadeAnim.setValue(0);
+    Animated.parallel([Animated.spring(undoSlideAnim, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }), Animated.timing(undoFadeAnim, { toValue: 1, duration: 250, useNativeDriver: true })]).start();
+    undoTimer.current = setTimeout(() => { Animated.parallel([Animated.timing(undoSlideAnim, { toValue: -80, duration: 200, useNativeDriver: true }), Animated.timing(undoFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true })]).start(() => setUndoItems(null)); }, 5000);
   }, [undoSlideAnim, undoFadeAnim]);
 
-  // 🎉 庆祝动画触发
+  // 🎉 庆祝动画 — 交错爆发 + 果冻形变 + 失重漂移 + 优雅退场
   const triggerCelebration = useCallback(() => {
-    const emojis = ['🎉', '✨', '🌟', '💫', '🎊', '🥳', '💖', '🌈'];
-    const particles = [];
-    for (let i = 0; i < 20; i++) {
+    const cx = SW / 2; const cy = SH / 2;
+    const particles: { tx: number; ty: number; emoji: string; x: Animated.Value; y: Animated.Value; sc: Animated.Value; rot: Animated.Value; op: Animated.Value }[] = [];
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const r = 60 + Math.random() * 80;
       particles.push({
-        x: Math.random() * SW,
-        y: Math.random() * SH,
-        emoji: emojis[Math.floor(Math.random() * emojis.length)],
-        delay: Math.random() * 400,
+        tx: Math.cos(angle) * r, ty: Math.sin(angle) * r,
+        emoji: ['✨', '💫', '🌟', '⭐'][i % 4],
+        x: new Animated.Value(0), y: new Animated.Value(0),
+        sc: new Animated.Value(0), rot: new Animated.Value(0), op: new Animated.Value(0),
       });
     }
-    celebEmojis.current = particles;
+    celebParticlesRef.current = particles;
     setShowCelebration(true);
-    celebScale.setValue(0);
-    celebOpacity.setValue(0);
-    Animated.parallel([
-      Animated.spring(celebScale, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true }),
-      Animated.timing(celebOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-    ]).start();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setTimeout(() => {
+    celebScale.setValue(0); celebOpacity.setValue(0);
+    celebAnimsRef.current.forEach(a => a.stop());
+    celebAnimsRef.current = [];
+
+    Animated.parallel([Animated.spring(celebScale, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true }), Animated.timing(celebOpacity, { toValue: 1, duration: 300, useNativeDriver: true })]).start();
+
+    // 阶段1: 交错爆发 + 果冻形变
+    const popAnims = particles.map(p =>
       Animated.parallel([
-        Animated.timing(celebOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
-        Animated.timing(celebScale, { toValue: 1.5, duration: 500, useNativeDriver: true }),
-      ]).start(() => {
-        setShowCelebration(false);
-        const limit = listInfoRef.current?.itemLimit || 100;
-        const count = itemsRef.current.length;
-        if ((limit === 10 || limit === 50) && count === limit && count < 100) {
-          const msg = limit === 10 ? '要不要挑战升级至 50 甚至 100 件？' : '要不要挑战 100 件上限？';
-          const btns: any[] = [
-            { text: '暂不', style: 'cancel' },
-          ];
-          if (limit === 10) {
-            btns.push({ text: '升级至 50', onPress: async () => { await updateListItemLimit(listId, 50); await animateAndRefresh(); } });
-            btns.push({ text: '直接挑战 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); } });
-          } else {
-            btns.push({ text: '升级至 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); } });
+        Animated.spring(p.x, { toValue: p.tx, friction: 6, tension: 70, useNativeDriver: true }),
+        Animated.spring(p.y, { toValue: p.ty, friction: 6, tension: 70, useNativeDriver: true }),
+        Animated.sequence([
+          Animated.timing(p.sc, { toValue: 0.8, duration: 80, useNativeDriver: true }),
+          Animated.spring(p.sc, { toValue: 1.1, friction: 3, tension: 60, useNativeDriver: true }),
+          Animated.spring(p.sc, { toValue: 1.0, friction: 4, tension: 40, useNativeDriver: true }),
+        ]),
+        Animated.timing(p.op, { toValue: 1, duration: 150, useNativeDriver: true }),
+      ]),
+    );
+    celebAnimsRef.current = popAnims;
+    Animated.stagger(30, popAnims).start();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    // 阶段2: 失重漂移
+    setTimeout(() => {
+      const driftAnims = particles.map(p =>
+        Animated.parallel([
+          Animated.timing(p.y, { toValue: p.ty + 15, duration: 6000, useNativeDriver: true }),
+          Animated.sequence([
+            Animated.timing(p.rot, { toValue: -12, duration: 3000, useNativeDriver: true }),
+            Animated.timing(p.rot, { toValue: 12, duration: 3000, useNativeDriver: true }),
+          ]),
+        ]),
+      );
+      celebAnimsRef.current = driftAnims;
+      Animated.parallel(driftAnims).start();
+    }, 400);
+
+    // 阶段3: 优雅退场
+    setTimeout(() => {
+      const fadeAnims = particles.map(p =>
+        Animated.parallel([
+          Animated.spring(p.x, { toValue: p.tx * 0.2, friction: 4, tension: 30, useNativeDriver: true }),
+          Animated.spring(p.y, { toValue: p.ty * 0.2, friction: 4, tension: 30, useNativeDriver: true }),
+          Animated.timing(p.op, { toValue: 0, duration: 800, useNativeDriver: true }),
+          Animated.timing(p.sc, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+        ]),
+      );
+      celebAnimsRef.current = fadeAnims;
+      Animated.parallel(fadeAnims).start();
+
+      setTimeout(() => {
+        Animated.parallel([Animated.timing(celebOpacity, { toValue: 0, duration: 500, useNativeDriver: true }), Animated.timing(celebScale, { toValue: 1.5, duration: 500, useNativeDriver: true })]).start(() => {
+          setShowCelebration(false);
+          const limit = listInfoRef.current?.itemLimit || 100; const count = itemsRef.current.length;
+          if ((limit === 10 || limit === 50) && count === limit && count < 100) {
+            const msg = limit === 10 ? '要不要挑战升级至 50 甚至 100 件？' : '要不要挑战 100 件上限？'; const btns: any[] = [{ text: '暂不', style: 'cancel' }];
+            if (limit === 10) { btns.push({ text: '升级至 50', onPress: async () => { await updateListItemLimit(listId, 50); await animateAndRefresh(); } }); btns.push({ text: '直接挑战 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); } }); }
+            else { btns.push({ text: '升级至 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); } }); }
+            Alert.alert('🎉 全部完成！', msg, btns);
           }
-          Alert.alert('🎉 全部完成！', msg, btns);
-        }
-      });
+        });
+      }, 1000);
     }, 2500);
   }, [celebScale, celebOpacity, listId]);
 
-  const listInfoRef = useRef<GoodList | null>(null);
-  listInfoRef.current = listInfo;
+  const listInfoRef = useRef<GoodList | null>(null); listInfoRef.current = listInfo;
 
   const toggleStatus = useCallback(async (item: GoodItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -274,24 +263,34 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
     await updateItemStatus(item.id, listId, s);
     setItems(p => {
       const next = p.map(i => i.id === item.id ? { ...i, status: s as 'pending' | 'completed', completedAt: s === 'completed' ? new Date().toISOString() : null } : i);
-      // 检测全部完成
-      if (s === 'completed') {
-        const total = next.length;
-        const allDone = next.every(i => i.status === 'completed');
-        if (total > 0 && allDone) {
-          setTimeout(() => triggerCelebration(), 150);
-        }
-      }
+      if (s === 'completed') { const total = next.length; if (total > 0 && next.every(i => i.status === 'completed')) setTimeout(() => triggerCelebration(), 150); }
       return next;
     });
     if (s === 'completed') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [listId, triggerCelebration]);
 
+  const scheduleBounceIn = useCallback((offsets: [string, number, number][]) => {
+    const m = bounceRefs.current;
+    const animations: Animated.CompositeAnimation[] = [];
+    offsets.forEach(([id, dx, dy]) => {
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      const existing = m.get(id);
+      if (existing) {
+        existing.x.setValue(dx); existing.y.setValue(dy);
+        animations.push(Animated.spring(existing.x, { toValue: 0, friction: 4, tension: 80, useNativeDriver: true }));
+        animations.push(Animated.spring(existing.y, { toValue: 0, friction: 4, tension: 80, useNativeDriver: true }));
+      } else {
+        const x = new Animated.Value(dx); const y = new Animated.Value(dy);
+        m.set(id, { x, y });
+        animations.push(Animated.spring(x, { toValue: 0, friction: 4, tension: 80, useNativeDriver: true }));
+        animations.push(Animated.spring(y, { toValue: 0, friction: 4, tension: 80, useNativeDriver: true }));
+      }
+    });
+    if (animations.length > 0) Animated.parallel(animations).start();
+  }, []);
+
   const handleMenuAction = useCallback((action: 'edit' | 'memory' | 'delete') => {
-    const itemId = menuItemIdRef.current;
-    setMenuItemId(null);
-    menuItemIdRef.current = null;
-    stopHalo();
+    const itemId = menuItemIdRef.current; setMenuItemId(null); menuItemIdRef.current = null; stopHalo();
     if (!itemId) return;
     const item = items.find(i => i.id === itemId);
     if (!item) return;
@@ -301,233 +300,111 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
       Alert.alert('删除', `确定删除「${item.title}」？`, [
         { text: '取消', style: 'cancel' },
         { text: '删除', style: 'destructive', onPress: () => {
-          // 三步果冻删除
           setDeletingCapsuleId(item.id);
-          capsuleDelScale.setValue(1);
-          capsuleDelOpacity.setValue(1);
+          capsuleDelScale.setValue(1); capsuleDelOpacity.setValue(1);
           Animated.parallel([
             Animated.spring(capsuleDelScale, { toValue: 0.6, friction: 7, tension: 40, useNativeDriver: true }),
             Animated.timing(capsuleDelOpacity, { toValue: 0, duration: 280, useNativeDriver: true }),
           ]).start(() => {
-            // 分场景补位: ≤20胶囊用轻量 eased 动画，>20 直接瞬间归位
-            const count = itemsRef.current.length;
-            if (count <= 20) {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-            }
+            const oldMap = new Map(layoutMapRef.current);
+            const oldItemsArr = itemsRef.current;
             setItems(prev => prev.filter(i => i.id !== item.id));
             setDeletingCapsuleId(null);
             deleteItem(item.id, listId);
+            InteractionManager.runAfterInteractions(() => {
+              setTimeout(() => {
+                const offsets: [string, number, number][] = [];
+                const newMap = layoutMapRef.current;
+                oldItemsArr.forEach(oi => {
+                  if (oi.id === item.id) return;
+                  const old = oldMap.get(oi.id); const neo = newMap.get(oi.id);
+                  if (!old || !neo) return;
+                  const dx = old.x - neo.x; const dy = old.y - neo.y;
+                  if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) offsets.push([oi.id, dx, dy]);
+                });
+                if (offsets.length > 0) scheduleBounceIn(offsets);
+              }, 100);
+            });
           });
         } },
       ]);
     }
-  }, [items, listId, stopHalo]);
+  }, [items, listId, stopHalo, scheduleBounceIn]);
 
-  const toggleSelectMode = () => {
-    if (isSelectMode) { setIsSelectMode(false); setSelectedIds(new Set()); }
-    else { setIsSelectMode(true); setSelectedIds(new Set()); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }
-  };
-  const batchComplete = async () => {
-    const ids = Array.from(selectedIds); if (!ids.length) return;
-    const now = new Date().toISOString();
-    await Promise.all(ids.map(id => updateItemStatus(id, listId, 'completed')));
-    setItems(p => p.map(i => ids.includes(i.id) ? { ...i, status: 'completed' as const, completedAt: now } : i));
-    setIsSelectMode(false); setSelectedIds(new Set());
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
-  const batchDelete = () => {
-    const ids = Array.from(selectedIds); if (!ids.length) return;
-    Alert.alert(`删除 ${ids.length} 项`, '确定删除？不可撤销。', [
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: async () => {
-        await Promise.all(ids.map(id => deleteItem(id, listId)));
-        await animateAndRefresh(); setIsSelectMode(false); setSelectedIds(new Set());
-      }},
-    ]);
-  };
+  // 🎯 原地沉浸 & 无损批量选择
+  const toggleSelectMode = useCallback(() => {
+    if (isSelectMode) {
+      setIsSelectMode(false); setSelectedIds(new Set());
+      Animated.timing(selectDimAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+    } else {
+      setIsSelectMode(true); setSelectedIds(new Set());
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Animated.timing(selectDimAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    }
+  }, [isSelectMode, selectDimAnim]);
 
-  const findItemAtPoint = (pageX: number, pageY: number, curItems: GoodItem[]) => {
-    const contentY = pageY - scrollTopRef.current + scrollYRef.current;
-    const contentX = pageX - scrollLeftRef.current - 12;
-    let candidates: { item: GoodItem; index: number; ly: typeof layoutMapRef.current extends Map<string, infer V> ? V : never }[] = [];
-    for (let i = 0; i < curItems.length; i++) {
-      const ci = curItems[i];
-      if (!ci?.id) continue;
-      const ly = layoutMapRef.current.get(ci.id);
-      if (!ly) continue;
-      if (contentY >= ly.y - 8 && contentY <= ly.y + ly.h + 8) {
-        (candidates as any).push({ item: ci, index: i, ly });
-      }
-    }
-    if (candidates.length === 0) {
-      let minDist = Infinity;
-      let best: typeof candidates[0] | null = null;
-      for (let i = 0; i < curItems.length; i++) {
-        const ci = curItems[i];
-        if (!ci?.id) continue;
-        const ly = layoutMapRef.current.get(ci.id);
-        if (!ly) continue;
-        const d = Math.abs(contentY - (ly.y + ly.h / 2));
-        if (d < minDist) { minDist = d; best = { item: ci, index: i, ly } as any; }
-      }
-      if (best) candidates = [best];
-    }
-    if (candidates.length === 0) return null;
-    if (candidates.length === 1) return { item: candidates[0].item, index: candidates[0].index, layoutY: candidates[0].ly.y, layoutH: candidates[0].ly.h, layoutX: candidates[0].ly.x, layoutW: candidates[0].ly.w };
-    let closest = candidates[0];
-    let closestDist = Infinity;
-    for (const c of candidates) {
-      const midX = c.ly.x + c.ly.w / 2;
-      const d = Math.abs(contentX - midX);
-      if (d < closestDist) { closestDist = d; closest = c; }
-    }
-    return { item: closest.item, index: closest.index, layoutY: closest.ly.y, layoutH: closest.ly.h, layoutX: closest.ly.x, layoutW: closest.ly.w };
-  };
-
-  const computeTargetIndex = (pageX: number, pageY: number, curItems: GoodItem[], excludeIndex: number) => {
-    const result = findItemAtPoint(pageX, pageY, curItems);
-    if (!result) return excludeIndex;
-    if (result.index === excludeIndex) return excludeIndex;
-    const contentY = pageY - scrollTopRef.current + scrollYRef.current;
-    const mid = result.layoutY + result.layoutH / 2;
-    if (contentY >= mid && result.index < curItems.length) {
-      return result.index + 1;
-    }
-    return result.index;
-  };
-
-  const doJellySpring = useCallback(() => {
-    if (isExiting.current) return;
-    const anim = LayoutAnimation.create(550, LayoutAnimation.Types.spring, LayoutAnimation.Properties.scaleXY);
-    LayoutAnimation.configureNext(anim);
+  const toggleSelectItem = useCallback((itemId: string) => {
+    setSelectedIds(p => { const s = new Set(p); if (s.has(itemId)) s.delete(itemId); else { s.add(itemId); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } return new Set(s); });
   }, []);
 
-  const handleBack = useCallback(() => {
-    isExiting.current = true;
-    stopHalo();
-    onBack();
-  }, [onBack, stopHalo]);
+  const executeBatchInDB = useCallback(async (type: 'complete' | 'delete', ids: string[]) => {
+    if (type === 'complete') { const now = new Date().toISOString(); await Promise.all(ids.map(id => updateItemStatus(id, listId, 'completed'))); }
+    else { await Promise.all(ids.map(id => deleteItem(id, listId))); }
+  }, [listId]);
+
+  const batchComplete = useCallback(() => {
+    const ids = Array.from(selectedIds); if (!ids.length) return;
+    const prevItems = itemsRef.current;
+    setItems(p => p.map(i => ids.includes(i.id) ? { ...i, status: 'completed' as const, completedAt: new Date().toISOString() } : i));
+    setIsSelectMode(false); setSelectedIds(new Set()); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    batchCacheRef.current = { type: 'complete', ids, prevItems };
+    setBatchUndoLabel(`已标记完成 ${ids.length} 项`);
+    if (batchUndoTimer.current) clearTimeout(batchUndoTimer.current);
+    batchUndoTimer.current = setTimeout(() => { executeBatchInDB('complete', ids); batchCacheRef.current = null; }, 5000);
+  }, [selectedIds, executeBatchInDB]);
+
+  const batchDelete = useCallback(() => {
+    const ids = Array.from(selectedIds); if (!ids.length) return;
+    const prevItems = itemsRef.current;
+    setItems(p => p.filter(i => !ids.includes(i.id)));
+    setIsSelectMode(false); setSelectedIds(new Set()); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    batchCacheRef.current = { type: 'delete', ids, prevItems };
+    setBatchUndoLabel(`已删除 ${ids.length} 项`);
+    if (batchUndoTimer.current) clearTimeout(batchUndoTimer.current);
+    batchUndoTimer.current = setTimeout(() => { executeBatchInDB('delete', ids); batchCacheRef.current = null; }, 5000);
+  }, [selectedIds, executeBatchInDB]);
+
+  const handleBatchUndo = useCallback(() => {
+    if (!batchCacheRef.current) return; const { prevItems } = batchCacheRef.current;
+    setItems(prevItems); setBatchUndoLabel(''); batchCacheRef.current = null;
+    if (batchUndoTimer.current) { clearTimeout(batchUndoTimer.current); batchUndoTimer.current = null; }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  }, []);
+
+  const findItemAtPoint = (pageX: number, pageY: number, curItems: GoodItem[]) => {
+    let candidates: any[] = []; const contentY = pageY - scrollTopRef.current + scrollYRef.current; const contentX = pageX - scrollLeftRef.current - 12;
+    for (let i = 0; i < curItems.length; i++) { const ci = curItems[i]; if (!ci?.id) continue; const ly = layoutMapRef.current.get(ci.id); if (!ly) continue; if (contentY >= ly.y - 8 && contentY <= ly.y + ly.h + 8) candidates.push({ item: ci, index: i, ly }); }
+    if (candidates.length === 0) { let minDist = Infinity; let best: any = null; for (let i = 0; i < curItems.length; i++) { const ci = curItems[i]; if (!ci?.id) continue; const ly = layoutMapRef.current.get(ci.id); if (!ly) continue; const d = Math.abs(contentY - (ly.y + ly.h / 2)); if (d < minDist) { minDist = d; best = { item: ci, index: i, ly }; } } if (best) candidates = [best]; }
+    if (candidates.length === 0) return null; if (candidates.length === 1) return { item: candidates[0].item, index: candidates[0].index, layoutY: candidates[0].ly.y, layoutH: candidates[0].ly.h, layoutX: candidates[0].ly.x, layoutW: candidates[0].ly.w };
+    let closest = candidates[0]; let cd = Infinity; for (const c of candidates) { const midX = c.ly.x + c.ly.w / 2; const d = Math.abs(contentX - midX); if (d < cd) { cd = d; closest = c; } }
+    return { item: closest.item, index: closest.index, layoutY: closest.ly.y, layoutH: closest.ly.h, layoutX: closest.ly.x, layoutW: closest.ly.w };
+  };
+  const computeTargetIndex = (pageX: number, pageY: number, curItems: GoodItem[], excludeIndex: number) => { const r = findItemAtPoint(pageX, pageY, curItems); if (!r) return excludeIndex; if (r.index === excludeIndex) return excludeIndex; const contentY = pageY - scrollTopRef.current + scrollYRef.current; return contentY >= r.layoutY + r.layoutH / 2 && r.index < curItems.length ? r.index + 1 : r.index; };
+  const doJellySpring = useCallback(() => { if (isExiting.current) return; LayoutAnimation.configureNext(LayoutAnimation.create(550, LayoutAnimation.Types.spring, LayoutAnimation.Properties.scaleXY)); }, []);
+  const handleBack = useCallback(() => { isExiting.current = true; stopHalo(); onBack(); }, [onBack, stopHalo]);
 
   const dragPanResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => menuItemIdRef.current !== null || dragActive.current,
     onMoveShouldSetPanResponder: () => menuItemIdRef.current !== null || dragActive.current,
     onShouldBlockNativeResponder: () => false,
     onPanResponderGrant: () => {},
-    onPanResponderMove: (_, gs) => {
-      const totalMove = Math.abs(gs.dy) + Math.abs(gs.dx);
-      if (!dragActive.current && menuItemIdRef.current && totalMove > 10) {
-        dragActive.current = true;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        setDragVisible(true);
-        stopHalo();
-        setMenuItemId(null);
-        menuItemIdRef.current = null;
-        dragStartPageX.current = dragStartPageX.current + gs.dx;
-        dragStartPageY.current = dragStartPageY.current + gs.dy;
-        dragOffset.setValue({ x: 0, y: 0 });
-        return;
-      }
-      if (dragActive.current) {
-        dragOffset.setValue({ x: gs.dx, y: gs.dy });
-        const curItems = itemsRef.current;
-        const currentPageX = dragStartPageX.current + gs.dx;
-        const currentPageY = dragStartPageY.current + gs.dy;
-        const targetIdx = computeTargetIndex(currentPageX, currentPageY, curItems, dragSrcIndex.current);
-        if (targetIdx !== highlightIndex) {
-          setHighlightIndex(targetIdx);
-          moveDropIndicator(targetIdx);
-        }
-      }
-    },
-    onPanResponderRelease: (_, gs) => {
-      setHighlightIndex(null);
-      Animated.timing(dropOpa, { toValue: 0, duration: 120, useNativeDriver: false }).start();
-      if (!dragActive.current) {
-        if (menuItemIdRef.current) { setMenuItemId(null); menuItemIdRef.current = null; stopHalo(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }
-        return;
-      }
-      dragActive.current = false;
-      setDragVisible(false);
-      const curItems = itemsRef.current;
-      if (curItems.length < 2) { dragOffset.setValue({ x: 0, y: 0 }); return; }
-      const currentPageX = dragStartPageX.current + gs.dx;
-      const currentPageY = dragStartPageY.current + gs.dy;
-      const targetIdx = computeTargetIndex(currentPageX, currentPageY, curItems, dragSrcIndex.current);
-      const srcIdx = dragSrcIndex.current;
-      if (targetIdx === srcIdx || targetIdx < 0 || targetIdx >= curItems.length) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        dragOffset.setValue({ x: 0, y: 0 });
-        return;
-      }
-      const prevItems = [...curItems];
-      const next = [...curItems];
-      const [moved] = next.splice(srcIdx, 1);
-      const insertIdx = targetIdx > srcIdx ? targetIdx - 1 : targetIdx;
-      next.splice(insertIdx, 0, moved);
-      doJellySpring();
-      setItems(next);
-      showUndo(prevItems);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      dragOffset.setValue({ x: 0, y: 0 });
-    },
+    onPanResponderMove: (_, gs) => { const totalMove = Math.abs(gs.dy) + Math.abs(gs.dx); if (!dragActive.current && menuItemIdRef.current && totalMove > 10) { dragActive.current = true; Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setDragVisible(true); stopHalo(); setMenuItemId(null); menuItemIdRef.current = null; dragStartPageX.current = dragStartPageX.current + gs.dx; dragStartPageY.current = dragStartPageY.current + gs.dy; dragOffset.setValue({ x: 0, y: 0 }); return; } if (dragActive.current) { dragOffset.setValue({ x: gs.dx, y: gs.dy }); const curItems = itemsRef.current; const targetIdx = computeTargetIndex(dragStartPageX.current + gs.dx, dragStartPageY.current + gs.dy, curItems, dragSrcIndex.current); if (targetIdx !== highlightIndex) { setHighlightIndex(targetIdx); moveDropIndicator(targetIdx); } } },
+    onPanResponderRelease: (_, gs) => { setHighlightIndex(null); Animated.timing(dropOpa, { toValue: 0, duration: 120, useNativeDriver: false }).start(); if (!dragActive.current) { if (menuItemIdRef.current) { setMenuItemId(null); menuItemIdRef.current = null; stopHalo(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } return; } dragActive.current = false; setDragVisible(false); const curItems = itemsRef.current; if (curItems.length < 2) { dragOffset.setValue({ x: 0, y: 0 }); return; } const targetIdx = computeTargetIndex(dragStartPageX.current + gs.dx, dragStartPageY.current + gs.dy, curItems, dragSrcIndex.current); const srcIdx = dragSrcIndex.current; if (targetIdx === srcIdx || targetIdx < 0 || targetIdx >= curItems.length) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); dragOffset.setValue({ x: 0, y: 0 }); return; } const prevItems = [...curItems]; const next = [...curItems]; const [moved] = next.splice(srcIdx, 1); const insertIdx = targetIdx > srcIdx ? targetIdx - 1 : targetIdx; next.splice(insertIdx, 0, moved); doJellySpring(); setItems(next); showUndo(prevItems); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); dragOffset.setValue({ x: 0, y: 0 }); },
     onPanResponderTerminate: () => { setHighlightIndex(null); dragActive.current = false; setDragVisible(false); dragOffset.setValue({ x: 0, y: 0 }); },
   })).current;
 
-  // 🔧 点击"+"按钮时提前检查里程碑
-  const handlePlusPress = useCallback(() => {
-    const limit = listInfoRef.current?.itemLimit || 100;
-    const count = itemsRef.current.length;
-    if (count >= 100) {
-      Alert.alert('已达满载上限', '当前目录已达 100 件满载上限，开启一段新的旅程吧！');
-      return;
-    }
-    if (count >= limit && limit < 100) {
-      if (limit === 10) {
-        Alert.alert('🎯 已达 10 件上限', '是否要扩充清单容量？', [
-          { text: '暂不', style: 'cancel' },
-          { text: '升级至 50', onPress: async () => { await updateListItemLimit(listId, 50); await animateAndRefresh(); setShowAddOverlay(true); } },
-          { text: '直接挑战 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); setShowAddOverlay(true); } },
-        ]);
-        return;
-      }
-      if (limit === 50) {
-        Alert.alert('🎯 已达 50 件上限', '是否要扩充至 100 件上限？', [
-          { text: '暂不', style: 'cancel' },
-          { text: '升级至 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); setShowAddOverlay(true); } },
-        ]);
-        return;
-      }
-    }
-    setShowAddOverlay(true);
-  }, [listId, animateAndRefresh]);
-
-  // 🔧 三级里程碑状态机
-  const handleAddItem = async (text: string) => {
-    const limit = listInfo?.itemLimit || 100;
-    if (items.length >= 100) {
-      Alert.alert('已达满载上限', '当前目录已达 100 件满载上限，开启一段新的旅程吧！');
-      return;
-    }
-    if (items.length >= limit && limit < 100) {
-      if (limit === 10) {
-        Alert.alert('🎉 恭喜达成 10 件小目标！', '要不要挑战更高的里程碑？', [
-          { text: '暂不', style: 'cancel' },
-          { text: '升级至 50', onPress: async () => { await updateListItemLimit(listId, 50); await addItem(listId, text.trim()); await animateAndRefresh(); } },
-          { text: '直接挑战 100', onPress: async () => { await updateListItemLimit(listId, 100); await addItem(listId, text.trim()); await animateAndRefresh(); } },
-        ]);
-        return;
-      }
-      if (limit === 50) {
-        Alert.alert('🎉 恭喜达成 50 件里程碑！', '要不要挑战 100 件上限？', [
-          { text: '暂不', style: 'cancel' },
-          { text: '升级至 100', onPress: async () => { await updateListItemLimit(listId, 100); await addItem(listId, text.trim()); await animateAndRefresh(); } },
-        ]);
-        return;
-      }
-    }
-    await addItem(listId, text.trim()); await animateAndRefresh();
-  };
-
+  const handlePlusPress = useCallback(() => { const limit = listInfoRef.current?.itemLimit || 100; const count = itemsRef.current.length; if (count >= 100) { Alert.alert('已达满载上限', '当前目录已达 100 件满载上限'); return; } if (count >= limit && limit < 100) { if (limit === 10) { Alert.alert('🎯 已达 10 件上限', '是否要扩充？', [{ text: '暂不', style: 'cancel' }, { text: '升级至 50', onPress: async () => { await updateListItemLimit(listId, 50); await animateAndRefresh(); setShowAddOverlay(true); } }, { text: '直接挑战 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); setShowAddOverlay(true); } }]); return; } if (limit === 50) { Alert.alert('🎯 已达 50 件上限', '是否要扩充？', [{ text: '暂不', style: 'cancel' }, { text: '升级至 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); setShowAddOverlay(true); } }]); return; } } setShowAddOverlay(true); }, [listId, animateAndRefresh]);
+  const handleAddItem = async (text: string) => { const limit = listInfo?.itemLimit || 100; if (items.length >= 100) { Alert.alert('已达满载上限'); return; } if (items.length >= limit && limit < 100) { if (limit === 10) { Alert.alert('🎉 达成 10 件！', '挑战更多？', [{ text: '暂不', style: 'cancel' }, { text: '升级至 50', onPress: async () => { await updateListItemLimit(listId, 50); await addItem(listId, text.trim()); await animateAndRefresh(); } }, { text: '直接挑战 100', onPress: async () => { await updateListItemLimit(listId, 100); await addItem(listId, text.trim()); await animateAndRefresh(); } }]); return; } if (limit === 50) { Alert.alert('🎉 达成 50 件！', '挑战 100？', [{ text: '暂不', style: 'cancel' }, { text: '升级至 100', onPress: async () => { await updateListItemLimit(listId, 100); await addItem(listId, text.trim()); await animateAndRefresh(); } }]); return; } } await addItem(listId, text.trim()); await animateAndRefresh(); };
   const onSave = async () => { setModalVisible(false); setSelectedItem(null); await animateAndRefresh(); };
   const onClose = () => { setModalVisible(false); setSelectedItem(null); };
 
@@ -539,7 +416,6 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
 
   const draggedItem = dragVisible ? items.find(i => i.id === dragItemId.current) : null;
   const menuItem = menuItemId ? items.find(i => i.id === menuItemId) : null;
-
   const draggedLayout = draggedItem ? layoutMapRef.current.get(draggedItem.id) : null;
   const coverX = draggedLayout ? scrollLeftRef.current + 12 + draggedLayout.x : 16;
   const coverTop = draggedLayout ? scrollTopRef.current + draggedLayout.y - scrollYRef.current - (dragIsGallery.current ? 10 : 6) : 0;
@@ -549,21 +425,14 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
       {ORBS.map((o, i) => <FloatingOrb key={i} {...o} />)}
       <View style={st.s}>
         <BlurView intensity={70} tint="light" style={st.h}>
-          <TouchableOpacity onPress={() => { if (isSelectMode) { toggleSelectMode(); } else { handleBack(); } }} style={st.bb}>
-            <Text style={st.bt}>{isSelectMode ? '✕' : '←'}</Text>
-          </TouchableOpacity>
-          <View style={st.hc}>
-            <Text style={st.ht} numberOfLines={1}>{listInfo?.iconEmoji} {listInfo?.title}</Text>
-            {isSelectMode && <Text style={st.selectCount}>{selectedIds.size} 项已选</Text>}
-          </View>
+          <TouchableOpacity onPress={() => { if (isSelectMode) toggleSelectMode(); else handleBack(); }} style={st.bb}><Text style={st.bt}>{isSelectMode ? '✕' : '←'}</Text></TouchableOpacity>
+          <View style={st.hc}><Text style={st.ht} numberOfLines={1}>{listInfo?.iconEmoji} {listInfo?.title}</Text>{isSelectMode && <Text style={st.selectCount}>{selectedIds.size} 项已选</Text>}</View>
           <TouchableOpacity onPress={toggleSelectMode} style={st.selectBtn}><Text style={st.selectBtnText}>{isSelectMode ? '完成' : '选择'}</Text></TouchableOpacity>
         </BlurView>
         <View style={st.pb}><View style={[st.pf, { width: `${items.length ? (done / items.length) * 100 : 0}%` }]} /></View>
         <Text style={st.pt}>{done}/{items.length}</Text>
 
-        <ScrollView style={st.sc} scrollEnabled={!dragActive.current && !menuItemId}
-          contentContainerStyle={mode === 'gallery' ? st.galleryContainer : { ...st.fluidContainer, gap: f!.gap }}
-          showsVerticalScrollIndicator={false} onScroll={e => { scrollYRef.current = e.nativeEvent.contentOffset.y; }} scrollEventThrottle={16}
+        <ScrollView style={st.sc} scrollEnabled={!dragActive.current && !menuItemId} contentContainerStyle={mode === 'gallery' ? st.galleryContainer : { ...st.fluidContainer, gap: f!.gap }} showsVerticalScrollIndicator={false} onScroll={e => { scrollYRef.current = e.nativeEvent.contentOffset.y; }} scrollEventThrottle={16}
           ref={r => { if (r) (r as any).measureInWindow((x: number, y: number) => { scrollTopRef.current = y; scrollLeftRef.current = x; }); }}>
           {items.map((item, index) => {
             if (!item) return null;
@@ -575,126 +444,58 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
             const isHighlighted = highlightIndex === index && !isDragged;
             const isSelected = menuItemId === item.id;
 
-            if (isDragged) {
-              return <View key={item.id} style={mode === 'gallery' ? [st.galleryCard, { backgroundColor: 'transparent', borderColor: 'transparent', width: GALLERY_STYLES.cardWidth }] : [pil.p, { backgroundColor: 'transparent', borderColor: 'transparent', paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }]} />;
-            }
+            if (isDragged) return <View key={item.id} style={mode === 'gallery' ? [st.galleryCard, { backgroundColor: 'transparent', borderColor: 'transparent', width: GALLERY_STYLES.cardWidth }] : [pil.p, { backgroundColor: 'transparent', borderColor: 'transparent', paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }]} />;
 
             const isDeleting = deletingCapsuleId === item.id;
+            const bv = bounceRefs.current.get(item.id);
+            const bounceX = bv?.x;
+            const bounceY = bv?.y;
 
             return (
-              <View key={item.id} onLayout={e => { const { y, height, x, width } = e.nativeEvent.layout; layoutMapRef.current.set(item.id, { y, h: height, x, w: width }); }}>
+              <Animated.View key={item.id} style={{ transform: bounceX && bounceY ? [{ translateX: bounceX }, { translateY: bounceY }] : [] }}
+                onLayout={e => { const { y, height, x, width } = e.nativeEvent.layout; layoutMapRef.current.set(item.id, { y, h: height, x, w: width }); }}>
                 {isSelected && (
-                  <Animated.View style={[st.haloRing, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, {
-                    borderColor: c, backgroundColor: 'transparent', shadowColor: c, shadowRadius: 20,
-                    shadowOpacity: haloOpacity, shadowOffset: { width: 0, height: 0 }, opacity: haloOpacity,
-                    transform: [{ scale: haloScale }], elevation: 5,
-                  }]} pointerEvents="none" />
+                  <Animated.View style={[st.haloRing, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, { borderColor: c, backgroundColor: 'transparent', shadowColor: c, shadowRadius: 20, shadowOpacity: haloOpacity, shadowOffset: { width: 0, height: 0 }, opacity: haloOpacity, transform: [{ scale: haloScale }], elevation: 5 }]} pointerEvents="none" />
                 )}
                 <TouchableOpacity activeOpacity={0.8} delayLongPress={400}
-                  onPress={() => { if (!isSelectMode) toggleStatus(item); }}
-                  onLongPress={() => {
-                    if (isSelectMode) return;
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                    setMenuItemId(item.id); menuItemIdRef.current = item.id;
-                    dragItemId.current = item.id; dragSrcIndex.current = index;
-                    dragItemColor.current = c; dragItemTitle.current = item.title;
-                    dragIsGallery.current = mode === 'gallery';
-                    dragItemFontSize.current = mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize;
-                    dragItemPadH.current = mode === 'gallery' ? 20 : f!.padH; dragItemPadV.current = mode === 'gallery' ? 14 : f!.padV;
-                    dragItemMinH.current = mode === 'gallery' ? 48 : f!.minH; dragItemCardW.current = mode === 'gallery' ? GALLERY_STYLES.cardWidth : 0;
-                    const ly = layoutMapRef.current.get(item.id); dragPillX.current = ly?.x ?? 0; dragPillW.current = ly?.w ?? 80;
-                    dragOffset.setValue({ x: 0, y: 0 });
-                    startHalo();
-                  }}>
+                  onPress={() => { if (isSelectMode) { toggleSelectItem(item.id); return; } toggleStatus(item); }}
+                  onLongPress={() => { if (isSelectMode) return; Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setMenuItemId(item.id); menuItemIdRef.current = item.id; dragItemId.current = item.id; dragSrcIndex.current = index; dragItemColor.current = c; dragItemTitle.current = item.title; dragIsGallery.current = mode === 'gallery'; dragItemFontSize.current = mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize; dragItemPadH.current = mode === 'gallery' ? 20 : f!.padH; dragItemPadV.current = mode === 'gallery' ? 14 : f!.padV; dragItemMinH.current = mode === 'gallery' ? 48 : f!.minH; dragItemCardW.current = mode === 'gallery' ? GALLERY_STYLES.cardWidth : 0; const ly = layoutMapRef.current.get(item.id); dragPillX.current = ly?.x ?? 0; dragPillW.current = ly?.w ?? 80; dragOffset.setValue({ x: 0, y: 0 }); startHalo(); }}>
                   {isDeleting ? (
-                    <Animated.View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: isDone ? `${c}66` : c },
-                      mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH },
-                      { opacity: capsuleDelOpacity, transform: [{ scale: capsuleDelScale }] }]}>
-                      <Text style={{ fontSize: mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize, fontWeight: isDone ? '400' : '600',
-                        color: isDone ? '#B2BEC3' : '#2D3436', textDecorationLine: isDone ? 'line-through' : 'none' }}>{item.title}</Text>
+                    <Animated.View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: isDone ? `${c}66` : c }, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, { opacity: capsuleDelOpacity, transform: [{ scale: capsuleDelScale }] }]}>
+                      <Text style={{ fontSize: mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize, fontWeight: isDone ? '400' : '600', color: isDone ? '#B2BEC3' : '#2D3436', textDecorationLine: isDone ? 'line-through' : 'none' }}>{item.title}</Text>
                       {mem && <View style={pil.g}><Text style={pil.gt}>✦</Text></View>}
                     </Animated.View>
                   ) : (
-                    <View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: isDone ? `${c}66` : c },
-                      mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH },
-                      isHighlighted && st.highlightPill, isSelected && st.selectedLift]}>
-                      <Text style={{ fontSize: mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize, fontWeight: isDone ? '400' : '600',
-                        color: isDone ? '#B2BEC3' : '#2D3436', textDecorationLine: isDone ? 'line-through' : 'none' }}>{item.title}</Text>
+                    <View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: isDone ? `${c}66` : c }, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, isHighlighted && st.highlightPill, isSelected && st.selectedLift]}>
+                      <Text style={{ fontSize: mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize, fontWeight: isDone ? '400' : '600', color: isDone ? '#B2BEC3' : '#2D3436', textDecorationLine: isDone ? 'line-through' : 'none' }}>{item.title}</Text>
                       {mem && <View style={pil.g}><Text style={pil.gt}>✦</Text></View>}
                     </View>
                   )}
                 </TouchableOpacity>
-              </View>
+              </Animated.View>
             );
           })}
           {!isSelectMode && <TouchableOpacity style={st.ab} onPress={handlePlusPress}><Text style={st.at}>+</Text></TouchableOpacity>}
         </ScrollView>
       </View>
 
-      {/* 拖拽插位指示器：绝对定位果冻发光条 */}
-      {highlightIndex !== null && dragActive.current && (
-        <Animated.View style={[st.dropGlow, {
-          position: 'absolute', left: dropLeft, top: dropTop, width: dropW, height: dropH,
-          opacity: 0.85, backgroundColor: dragItemColor.current,
-          shadowColor: dragItemColor.current,
-        }]} pointerEvents="none" />
-      )}
-
-      {undoItems && (
-        <Animated.View style={[st.undoFloater, { transform: [{ translateY: undoSlideAnim }], opacity: undoFadeAnim }]} pointerEvents="box-none">
-          <BlurView intensity={85} tint="light" style={st.undoFloaterInner}>
-            <Text style={st.undoText}>已重新排序</Text>
-            <TouchableOpacity onPress={() => { if (!undoItems) return; doJellySpring(); setItems(undoItems); if (undoTimer.current) clearTimeout(undoTimer.current); setUndoItems(null); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => { if (undoTimer.current) clearTimeout(undoTimer.current); setUndoItems(null); }} style={st.undoClose}><Text style={st.undoCloseText}>✕</Text></TouchableOpacity>
-          </BlurView>
-        </Animated.View>
-      )}
-
-      {menuItem && (
-        <View style={[st.menuOverlay, { top: scrollTopRef.current + (layoutMapRef.current.get(menuItemId!)?.y ?? 0) + (layoutMapRef.current.get(menuItemId!)?.h ?? 44) - scrollYRef.current + 8 }]} pointerEvents="box-none">
-          <BlurView intensity={90} tint="prominent" style={st.menuBox}>
-            <TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('edit')}><Text style={st.menuIcon}>✏️</Text><Text style={st.menuLabel}>编辑</Text></TouchableOpacity>
-            <View style={st.menuSep} />
-            <TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('memory')}><Text style={st.menuIcon}>💭</Text><Text style={st.menuLabel}>手记</Text></TouchableOpacity>
-            <View style={st.menuSep} />
-            <TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('delete')}><Text style={st.menuIcon}>🗑</Text><Text style={[st.menuLabel, { color: '#FF3B30' }]}>删除</Text></TouchableOpacity>
-          </BlurView>
-        </View>
-      )}
-
-      {dragVisible && draggedItem && (
-        <Animated.View style={[st.dragOverlay, { top: coverTop, left: coverX, transform: [{ translateX: dragOffset.x }, { translateY: dragOffset.y }] }]} pointerEvents="none">
-          <View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: dragItemColor.current, width: mode === 'gallery' ? dragItemCardW.current : undefined }, mode !== 'gallery' && { paddingHorizontal: dragItemPadH.current, paddingVertical: dragItemPadV.current, minHeight: dragItemMinH.current }, st.dragPillShadow]}>
-            <Text style={{ fontSize: dragItemFontSize.current, fontWeight: '700', color: '#2D3436', maxWidth: mode === 'gallery' ? undefined : 180 }} numberOfLines={mode === 'gallery' ? 2 : 1}>{dragItemTitle.current}</Text>
-          </View>
-        </Animated.View>
-      )}
-
-      {isSelectMode && selectedIds.size > 0 && (
-        <View style={st.batchBar}>
-          <BlurView intensity={85} tint="light" style={st.batchBarInner}>
-            <TouchableOpacity style={[st.batchBtn, st.batchBtnComplete]} onPress={batchComplete}><Text style={st.batchBtnTextComplete}>完成 ({selectedIds.size})</Text></TouchableOpacity>
-            <TouchableOpacity style={[st.batchBtn, st.batchBtnDelete]} onPress={batchDelete}><Text style={st.batchBtnTextDelete}>删除 ({selectedIds.size})</Text></TouchableOpacity>
-          </BlurView>
-        </View>
-      )}
-
-      {/* 🎉 全部完成庆祝动画 */}
+      {highlightIndex !== null && dragActive.current && (<Animated.View style={[st.dropGlow, { position: 'absolute', left: dropLeft, top: dropTop, width: dropW, height: dropH, opacity: 0.85, backgroundColor: dragItemColor.current, shadowColor: dragItemColor.current }]} pointerEvents="none" />)}
+      {undoItems && (<Animated.View style={[st.undoFloater, { transform: [{ translateY: undoSlideAnim }], opacity: undoFadeAnim }]} pointerEvents="box-none"><BlurView intensity={85} tint="light" style={st.undoFloaterInner}><Text style={st.undoText}>已重新排序</Text><TouchableOpacity onPress={() => { if (!undoItems) return; doJellySpring(); setItems(undoItems); if (undoTimer.current) clearTimeout(undoTimer.current); setUndoItems(null); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity><TouchableOpacity onPress={() => { if (undoTimer.current) clearTimeout(undoTimer.current); setUndoItems(null); }} style={st.undoClose}><Text style={st.undoCloseText}>✕</Text></TouchableOpacity></BlurView></Animated.View>)}
+      {menuItem && (<View style={[st.menuOverlay, { top: scrollTopRef.current + (layoutMapRef.current.get(menuItemId!)?.y ?? 0) + (layoutMapRef.current.get(menuItemId!)?.h ?? 44) - scrollYRef.current + 8 }]} pointerEvents="box-none"><BlurView intensity={90} tint="prominent" style={st.menuBox}><TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('edit')}><Text style={st.menuIcon}>✏️</Text><Text style={st.menuLabel}>编辑</Text></TouchableOpacity><View style={st.menuSep} /><TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('memory')}><Text style={st.menuIcon}>💭</Text><Text style={st.menuLabel}>手记</Text></TouchableOpacity><View style={st.menuSep} /><TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('delete')}><Text style={st.menuIcon}>🗑</Text><Text style={[st.menuLabel, { color: '#FF3B30' }]}>删除</Text></TouchableOpacity></BlurView></View>)}
+      {dragVisible && draggedItem && (<Animated.View style={[st.dragOverlay, { top: coverTop, left: coverX, transform: [{ translateX: dragOffset.x }, { translateY: dragOffset.y }] }]} pointerEvents="none"><View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: dragItemColor.current, width: mode === 'gallery' ? dragItemCardW.current : undefined }, mode !== 'gallery' && { paddingHorizontal: dragItemPadH.current, paddingVertical: dragItemPadV.current, minHeight: dragItemMinH.current }, st.dragPillShadow]}><Text style={{ fontSize: dragItemFontSize.current, fontWeight: '700', color: '#2D3436', maxWidth: mode === 'gallery' ? undefined : 180 }} numberOfLines={mode === 'gallery' ? 2 : 1}>{dragItemTitle.current}</Text></View></Animated.View>)}
+      {isSelectMode && selectedIds.size > 0 && (<View style={st.batchBar}><BlurView intensity={85} tint="light" style={st.batchBarInner}><TouchableOpacity style={[st.batchBtn, st.batchBtnComplete]} onPress={batchComplete}><Text style={st.batchBtnTextComplete}>完成 ({selectedIds.size})</Text></TouchableOpacity><TouchableOpacity style={[st.batchBtn, st.batchBtnDelete]} onPress={batchDelete}><Text style={st.batchBtnTextDelete}>删除 ({selectedIds.size})</Text></TouchableOpacity></BlurView></View>)}
       {showCelebration && (
         <Animated.View style={[st.celebOverlay, { opacity: celebOpacity }]} pointerEvents="box-none">
           <BlurView intensity={20} tint="light" style={StyleSheet.absoluteFill} />
+          {celebParticlesRef.current.map((p, i) => (
+            <Animated.Text key={i} style={[st.celebParticle, { left: SW / 2 - 16, top: SH / 2 - 16, opacity: p.op, fontSize: 28, transform: [{ translateX: p.x }, { translateY: p.y }, { scale: p.sc }, { rotate: p.rot.interpolate({ inputRange: [-15, 15], outputRange: ['-15deg', '15deg'] }) }] }]}>{p.emoji}</Animated.Text>
+          ))}
           <Animated.View style={[st.celebCenter, { transform: [{ scale: celebScale }] }]}>
             <Text style={st.celebTitle}>🎉 全部完成！</Text>
             <Text style={st.celebSub}>太棒了！</Text>
           </Animated.View>
-          {celebEmojis.current.map((p, i) => (
-            <Animated.Text key={i} style={[st.celebParticle, { left: p.x, top: p.y, opacity: celebOpacity }]}>
-              {p.emoji}
-            </Animated.Text>
-          ))}
         </Animated.View>
       )}
-
       <MemoryModal visible={modalVisible} item={selectedItem} onClose={onClose} onSaved={onSave} />
       <AddItemOverlay visible={showAddOverlay} onAdd={handleAddItem} onClose={() => setShowAddOverlay(false)} currentCount={items.length} maxCount={listInfo?.itemLimit || 100} />
     </View>
@@ -702,21 +503,17 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
 }
 
 const st = StyleSheet.create({
-  r: { flex: 1, backgroundColor: '#E8ECF1' },
-  ld: { flex: 1, backgroundColor: '#E8ECF1', alignItems: 'center', justifyContent: 'center' },
+  r: { flex: 1, backgroundColor: '#E8ECF1' }, ld: { flex: 1, backgroundColor: '#E8ECF1', alignItems: 'center', justifyContent: 'center' },
   s: { flex: 1, paddingTop: Platform.OS === 'ios' ? 54 : 30 },
   h: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, marginHorizontal: 12, borderRadius: 32, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.55)' },
   bb: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(45,52,54,0.06)', alignItems: 'center', justifyContent: 'center' },
-  bt: { fontSize: 20, color: '#2D3436', fontWeight: '600' },
-  hc: { flex: 1, alignItems: 'center', marginHorizontal: 8 },
-  ht: { fontSize: 18, fontWeight: '700', color: '#2D3436' },
-  selectCount: { fontSize: 11, color: '#7A8A9E', marginTop: 1, fontWeight: '500' },
+  bt: { fontSize: 20, color: '#2D3436', fontWeight: '600' }, hc: { flex: 1, alignItems: 'center', marginHorizontal: 8 },
+  ht: { fontSize: 18, fontWeight: '700', color: '#2D3436' }, selectCount: { fontSize: 11, color: '#7A8A9E', marginTop: 1, fontWeight: '500' },
   selectBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: 'rgba(45,52,54,0.06)' },
   selectBtnText: { fontSize: 13, color: '#2D3436', fontWeight: '600' },
   pb: { height: 2, backgroundColor: 'rgba(45,52,54,0.06)', marginHorizontal: 16, marginTop: 8, borderRadius: 1, overflow: 'hidden' },
   pf: { height: '100%', backgroundColor: '#6C7A8D', borderRadius: 1 },
-  pt: { fontSize: 11, color: '#7A8A9E', textAlign: 'center', marginTop: 4, marginBottom: 6, fontWeight: '500' },
-  sc: { flex: 1 },
+  pt: { fontSize: 11, color: '#7A8A9E', textAlign: 'center', marginTop: 4, marginBottom: 6, fontWeight: '500' }, sc: { flex: 1 },
   galleryContainer: { flexDirection: 'column', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 60, paddingTop: 12, gap: 12 },
   galleryCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)', paddingHorizontal: 20, paddingVertical: 14, shadowColor: '#4A5568', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
   fluidContainer: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, paddingBottom: 60, paddingTop: 6, alignContent: 'flex-start' },
@@ -724,23 +521,16 @@ const st = StyleSheet.create({
   ei: { fontSize: 11.5, fontWeight: '600', color: '#2D3436', minWidth: 50, padding: 0 },
   ab: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#2D3436', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 6, elevation: 3, alignSelf: 'flex-start' },
   at: { fontSize: 20, color: '#FFF', marginTop: -1 },
-  undoBar: { marginHorizontal: 12, marginBottom: 4, borderRadius: 16, overflow: 'hidden' },
-  undoBarInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, backgroundColor: 'rgba(255,255,255,0.55)' },
-  undoText: { fontSize: 13, color: '#2D3436', fontWeight: '500', flex: 1 },
-  undoBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12, backgroundColor: '#2D3436' },
-  undoBtnText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
-  undoClose: { marginLeft: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(45,52,54,0.06)', alignItems: 'center', justifyContent: 'center' },
-  undoCloseText: { fontSize: 12, color: '#7A8A9E' },
   undoFloater: { position: 'absolute', top: 0, left: 12, right: 12, zIndex: 996, paddingTop: Platform.OS === 'ios' ? 60 : 40 },
   undoFloaterInner: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.65)', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 8 },
+  undoText: { fontSize: 13, color: '#2D3436', fontWeight: '500', flex: 1 }, undoBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12, backgroundColor: '#2D3436' },
+  undoBtnText: { fontSize: 12, color: '#FFF', fontWeight: '600' }, undoClose: { marginLeft: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(45,52,54,0.06)', alignItems: 'center', justifyContent: 'center' },
+  undoCloseText: { fontSize: 12, color: '#7A8A9E' },
   menuOverlay: { position: 'absolute', left: 16, right: 16, zIndex: 998, alignItems: 'center' },
   menuBox: { flexDirection: 'row', borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.75)', paddingVertical: 2, paddingHorizontal: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 8, alignSelf: 'center' },
-  menuRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10 },
-  menuIcon: { fontSize: 14, marginRight: 4 },
-  menuLabel: { fontSize: 14, color: '#2D3436', fontWeight: '600' },
-  menuSep: { width: 1, height: 20, backgroundColor: 'rgba(45,52,54,0.1)', alignSelf: 'center' },
-  dragOverlay: { position: 'absolute', zIndex: 999 },
-  dragPillShadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 16, elevation: 16, transform: [{ scale: 1.12 }] },
+  menuRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10 }, menuIcon: { fontSize: 14, marginRight: 4 },
+  menuLabel: { fontSize: 14, color: '#2D3436', fontWeight: '600' }, menuSep: { width: 1, height: 20, backgroundColor: 'rgba(45,52,54,0.1)', alignSelf: 'center' },
+  dragOverlay: { position: 'absolute', zIndex: 999 }, dragPillShadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 16, elevation: 16, transform: [{ scale: 1.12 }] },
   highlightPill: { borderColor: 'rgba(255,215,0,0.5)', borderWidth: 2, shadowColor: '#FFD700', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
   haloRing: { position: 'absolute', top: -6, left: -6, right: -6, bottom: -6, borderRadius: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 4, zIndex: 1 },
   selectedLift: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 15, elevation: 6 },
@@ -748,15 +538,11 @@ const st = StyleSheet.create({
   batchBar: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 12, paddingBottom: Platform.OS === 'ios' ? 34 : 12 },
   batchBarInner: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.7)', gap: 10 },
   batchBtn: { flex: 1, paddingVertical: 12, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  batchBtnComplete: { backgroundColor: '#2D3436' },
-  batchBtnDelete: { backgroundColor: 'rgba(255,59,48,0.1)', borderWidth: 1, borderColor: 'rgba(255,59,48,0.3)' },
-  batchBtnTextComplete: { fontSize: 15, color: '#FFF', fontWeight: '600' },
-  batchBtnTextDelete: { fontSize: 15, color: '#FF3B30', fontWeight: '600' },
+  batchBtnComplete: { backgroundColor: '#2D3436' }, batchBtnDelete: { backgroundColor: 'rgba(255,59,48,0.1)', borderWidth: 1, borderColor: 'rgba(255,59,48,0.3)' },
+  batchBtnTextComplete: { fontSize: 15, color: '#FFF', fontWeight: '600' }, batchBtnTextDelete: { fontSize: 15, color: '#FF3B30', fontWeight: '600' },
   celebOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 995, alignItems: 'center', justifyContent: 'center' },
   celebCenter: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.85)', paddingHorizontal: 32, paddingVertical: 24, borderRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 10 },
-  celebTitle: { fontSize: 36, marginBottom: 4 },
-  celebSub: { fontSize: 22, fontWeight: '700', color: '#2D3436' },
-  celebParticle: { position: 'absolute', fontSize: 32 },
+  celebTitle: { fontSize: 36, marginBottom: 4 }, celebSub: { fontSize: 22, fontWeight: '700', color: '#2D3436' }, celebParticle: { position: 'absolute', fontSize: 32 },
 });
 
 const pil = StyleSheet.create({

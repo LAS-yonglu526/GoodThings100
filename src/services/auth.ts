@@ -1,33 +1,23 @@
 import { supabase } from '../config/supabase';
 
 /**
- * 发送手机验证码
+ * 发送邮箱验证码
  */
-export async function sendPhoneOTP(phone: string): Promise<{ error?: string }> {
-  const { error } = await supabase.auth.signInWithOtp({
-    phone,
-  });
-  if (error) {
-    return { error: error.message };
-  }
+export async function sendEmailOTP(email: string): Promise<{ error?: string }> {
+  const { error } = await supabase.auth.signInWithOtp({ email });
+  if (error) return { error: error.message };
   return {};
 }
 
 /**
- * 验证 OTP 并登录
+ * 验证邮箱 OTP 并登录
  */
-export async function verifyPhoneOTP(
-  phone: string,
+export async function verifyEmailOTP(
+  email: string,
   token: string
 ): Promise<{ error?: string; userId?: string }> {
-  const { data, error } = await supabase.auth.verifyOtp({
-    phone,
-    token,
-    type: 'sms',
-  });
-  if (error) {
-    return { error: error.message };
-  }
+  const { data, error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
+  if (error) return { error: error.message };
   return { userId: data.user?.id };
 }
 
