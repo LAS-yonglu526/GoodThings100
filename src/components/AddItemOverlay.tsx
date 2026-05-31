@@ -52,7 +52,7 @@ export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, 
   const handleSubmit = () => {
     const val = text.trim();
     if (!val) return;
-    if (currentCount >= maxCount) return;
+    // 不再在此拦截 currentCount >= maxCount，交由 handleAddItem 的里程碑弹窗处理
     onAdd(val);
     setText('');
     onClose();
@@ -84,7 +84,7 @@ export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, 
           />
           <View style={s.footer}>
             <Text style={s.charCount}>{currentCount}/{maxCount}</Text>
-            <TouchableOpacity style={s.addBtn} onPress={handleSubmit} disabled={currentCount >= maxCount}>
+            <TouchableOpacity style={s.addBtn} onPress={handleSubmit} disabled={maxCount >= 100 && currentCount >= 100}>
               <Text style={s.addBtnText}>添加</Text>
             </TouchableOpacity>
           </View>

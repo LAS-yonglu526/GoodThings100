@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>好事100 - 扫码打开</title>
+  <style>
+    body { font-family: system-ui; display: flex; flex-direction: column; align-items: center; padding: 40px 16px; background: #E8ECF1; color: #2D3436; }
+    h2 { margin-bottom: 4px; }
+    .hint { font-size: 14px; color: #7A8A9E; margin: 8px 0 20px; }
+    #qr { width: 260px; height: 260px; margin: 16px 0; border: 14px solid #FFF; border-radius: 24px; box-shadow: 0 6px 24px rgba(0,0,0,0.1); }
+    .url { font-size: 12px; color: #636E72; word-break: break-all; text-align: center; max-width: 320px; background: rgba(255,255,255,0.7); padding: 10px 16px; border-radius: 10px; margin: 8px 0; }
+    .tip { font-size: 13px; color: #B2BEC3; margin-top: 12px; }
+    .actions { display: flex; gap: 10px; margin: 8px 0; }
+    .btn { padding: 10px 20px; border-radius: 12px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn-primary { background: #2D3436; color: #FFF; }
+    .btn-secondary { background: rgba(45,52,54,0.08); color: #2D3436; }
+    .status { font-size: 12px; color: #7A8A9E; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h2>📱 好事100</h2>
+  <p class="hint">使用 <strong>Expo Go</strong> (iOS/Android) 扫码打开</p>
+  <canvas id="qr"></canvas>
+  <p class="url" id="qrUrl">exp://10.16.60.135:8081</p>
+  <div class="actions">
+    <button class="btn btn-secondary" onclick="switchMode('lan')">LAN</button>
+    <button class="btn btn-secondary" onclick="switchMode('tunnel')">隧道</button>
+  </div>
+  <p class="status" id="status"></p>
+  <p class="tip">确保手机与电脑在同一 Wi-Fi，先运行 <code>npx expo start -c</code></p>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js">
+  </script>
+  <script>
+    const lanUrl = 'exp://10.16.60.135:8081';
+    const tunnelUrl = 'exp://dsbl4ro-anonymous-8081.exp.direct';
+    let currentUrl = lanUrl;
+    
+    function renderQR(url) {
+      document.getElementById('qrUrl').textContent = url;
+      const canvas = document.getElementById('qr');
+      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+      QRCode.toCanvas(canvas, url, { width: 260, margin: 2, color: { dark: '#2D3436', light: '#FFFFFF' } });
+    }
+    
+    function switchMode(mode) {
+      currentUrl = mode === 'lan' ? lanUrl : tunnelUrl;
+      renderQR(currentUrl);
+      document.getElementById('status').textContent = mode === 'lan' ? '📍 LAN 模式 — 同一 Wi-Fi 下' : '🌐 隧道模式 — 远程扫码';
+    }
+    
+    switchMode('lan');
+  </script>
+</body>
+</html>

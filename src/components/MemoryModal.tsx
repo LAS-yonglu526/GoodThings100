@@ -71,7 +71,8 @@ export default function MemoryModal({ visible, item, onClose, onSaved }: MemoryM
     try {
       await updateItemMemory(item.id, item.listId, memoryText, JSON.stringify(mediaUris));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onSaved();
+      onClose();
+      requestAnimationFrame(() => onSaved());
     } catch (err: any) {
       Alert.alert('保存失败', err.message || '请重试');
     } finally {

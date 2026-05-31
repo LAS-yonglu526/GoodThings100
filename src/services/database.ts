@@ -63,6 +63,7 @@ export async function updateItemStatus(id: string, listId: string, status: 'pend
 export async function updateItemTitle(id: string, listId: string, title: string) { await getDB().runAsync('UPDATE good_items SET title = ? WHERE id = ? AND listId = ?', [title, id, listId]); }
 export async function deleteItem(id: string, listId: string) { await getDB().runAsync('DELETE FROM good_items WHERE id = ? AND listId = ?', [id, listId]); }
 export async function addItem(listId: string, title: string) { await getDB().runAsync('INSERT INTO good_items (id, listId, title) VALUES (?, ?, ?)', [`${listId}_${Date.now()}`, listId, title]); }
+export async function updateListItemLimit(listId: string, newLimit: number) { await getDB().runAsync('UPDATE lists SET itemLimit = ? WHERE id = ?', [newLimit, listId]); }
 export async function updateItemMemory(id: string, listId: string, memoryText: string, mediaUris: string) {
   await getDB().runAsync('UPDATE good_items SET memoryText = ?, mediaUris = ? WHERE id = ? AND listId = ?', [memoryText, mediaUris, id, listId]);
 }
@@ -70,6 +71,7 @@ export async function getItemCount(listId: string): Promise<number> {
   const r = await getDB().getFirstAsync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM good_items WHERE listId = ?', [listId]);
   return r?.cnt ?? 0;
 }
+export async function updateListTitle(listId: string, title: string) { await getDB().runAsync('UPDATE lists SET title = ? WHERE id = ?', [title, listId]); }
 /** 获取已完成数量 */
 export async function getCompletedCount(listId: string): Promise<number> {
   const r = await getDB().getFirstAsync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM good_items WHERE listId = ? AND status = ?', [listId, 'completed']);

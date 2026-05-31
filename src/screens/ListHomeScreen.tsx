@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  LayoutAnimation,
   Modal,
   Platform,
   ScrollView,
@@ -14,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import {
   initDatabase,
   getAllLists,
@@ -22,6 +24,7 @@ import {
   bulkInsertItems,
   getItemCount,
   getCompletedCount,
+  updateListTitle,
   GoodList,
 } from '../services/database';
 import { TEMPLATES, TEMPLATE_LIST } from '../services/templates';
@@ -72,11 +75,12 @@ function FloatingOrb({ size, color, startX, startY, durX, durY }: typeof ORBS[nu
 export interface CardLayout { x: number; y: number; width: number; height: number; }
 
 interface Props {
+  refreshKey: number;
   onSelectList: (listId: string, cardLayout: CardLayout) => void;
   onGoSettings: () => void;
 }
 
-export default function ListHomeScreen({ onSelectList, onGoSettings }: Props) {
+export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings }: Props) {
   const [lists, setLists] = useState<GoodList[]>([]);
   const [loading, setLoading] = useState(true);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
@@ -85,6 +89,13 @@ export default function ListHomeScreen({ onSelectList, onGoSettings }: Props) {
   const [newTitle, setNewTitle] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('love');
   const [selectedLimit, setSelectedLimit] = useState(100);
+  const [menuListId, setMenuListId] = useState<string | null>(null);
+  const [showEditTitle, setShowEditTitle] = useState(false);
+  const [editListTitle, setEditListTitle] = useState('');
+  const editingListId = useRef('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const deletingScale = useRef(new Animated.Value(1)).current;
+  const deletingOpacity = useRef(new Animated.Value(1)).current;
 
   const cardLayouts = useRef<Record<string, CardLayout>>({});
 
@@ -104,7 +115,7 @@ export default function ListHomeScreen({ onSelectList, onGoSettings }: Props) {
 
   useEffect(() => {
     initDatabase().then(() => loadLists());
-  }, [loadLists]);
+  }, [loadLists, refreshKey]);
 
   const handleCreate = async () => {
     const tpl = TEMPLATES[selectedTemplate];
@@ -120,10 +131,44 @@ export default function ListHomeScreen({ onSelectList, onGoSettings }: Props) {
   };
 
   const handleDelete = (item: GoodList) => {
+    setMenuListId(null);
     Alert.alert('删除清单', `确定要删除「${item.title}」吗？`, [
       { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: async () => { await deleteList(item.id); await loadLists(); } },
+      { text: '删除', style: 'destructive', onPress: () => {
+        // 阶段1: 被删卡片果冻缩小淡出 (300ms)
+        setDeletingId(item.id);
+        deletingScale.setValue(1);
+        deletingOpacity.setValue(1);
+        Animated.parallel([
+          Animated.spring(deletingScale, { toValue: 0.6, friction: 7, tension: 40, useNativeDriver: true }),
+          Animated.timing(deletingOpacity, { toValue: 0, duration: 280, useNativeDriver: true }),
+        ]).start(() => {
+          // 阶段2: 其余卡片慢慢Q弹补位 (LayoutAnimation spring 约500ms)
+          LayoutAnimation.configureNext(
+            LayoutAnimation.create(600, LayoutAnimation.Types.spring, LayoutAnimation.Properties.scaleXY),
+          );
+          setLists(prev => prev.filter(l => l.id !== item.id));
+          setDeletingId(null);
+          deleteList(item.id);
+        });
+      } },
     ]);
+  };
+
+  const handleOpenEditTitle = (item: GoodList) => {
+    setMenuListId(null);
+    editingListId.current = item.id;
+    setEditListTitle(item.title);
+    setShowEditTitle(true);
+  };
+
+  const handleSaveEditTitle = async () => {
+    const id = editingListId.current;
+    const title = editListTitle.trim();
+    if (!title || !id) { setShowEditTitle(false); return; }
+    await updateListTitle(id, title);
+    setShowEditTitle(false);
+    await loadLists();
   };
 
   if (loading) {
@@ -177,18 +222,30 @@ export default function ListHomeScreen({ onSelectList, onGoSettings }: Props) {
                     activeOpacity={0.7}
                     onLayout={(e) => {
                       const { x, y, width, height } = e.nativeEvent.layout;
-                      // Approximate screen position (layout is relative to parent, so we need page offset)
-                  cardLayouts.current[item.id] = { x: 16 + x, y: 120 + y, width, height };
+                      cardLayouts.current[item.id] = { x: 16 + x, y: 120 + y, width, height };
                     }}
                     onPress={() => onSelectList(item.id, layout)}
-                    onLongPress={() => handleDelete(item)}
+                    onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setMenuListId(item.id); }}
                   >
-                    <Text style={s.cardIcon}>{item.iconEmoji}</Text>
-                    <Text style={s.cardTitle} numberOfLines={2}>{item.title}</Text>
-                    <View style={s.cardProgressBar}>
-                      <View style={[s.cardProgressFill, { width: `${Math.min(pct, 100)}%` }]} />
-                    </View>
-                    <Text style={s.cardCount}>{done}/{total} · {pct}%</Text>
+                    {deletingId === item.id ? (
+                      <Animated.View style={{ opacity: deletingOpacity, transform: [{ scale: deletingScale }] }}>
+                        <Text style={s.cardIcon}>{item.iconEmoji}</Text>
+                        <Text style={s.cardTitle} numberOfLines={2}>{item.title}</Text>
+                        <View style={s.cardProgressBar}>
+                          <View style={[s.cardProgressFill, { width: `${Math.min(pct, 100)}%` }]} />
+                        </View>
+                        <Text style={s.cardCount}>{done}/{total} · {pct}%</Text>
+                      </Animated.View>
+                    ) : (
+                      <>
+                        <Text style={s.cardIcon}>{item.iconEmoji}</Text>
+                        <Text style={s.cardTitle} numberOfLines={2}>{item.title}</Text>
+                        <View style={s.cardProgressBar}>
+                          <View style={[s.cardProgressFill, { width: `${Math.min(pct, 100)}%` }]} />
+                        </View>
+                        <Text style={s.cardCount}>{done}/{total} · {pct}%</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -196,11 +253,50 @@ export default function ListHomeScreen({ onSelectList, onGoSettings }: Props) {
           )}
         </ScrollView>
 
+        {/* 长按菜单 */}
+        {menuListId && (() => {
+          const menuItem = lists.find(l => l.id === menuListId);
+          if (!menuItem) { setMenuListId(null); return null; }
+          return (
+            <TouchableOpacity style={s.menuBackdrop} activeOpacity={1} onPress={() => setMenuListId(null)}>
+              <View style={s.menuCard}>
+                <Text style={s.menuTitle} numberOfLines={1}>{menuItem.iconEmoji} {menuItem.title}</Text>
+                <View style={s.menuSepH} />
+                <TouchableOpacity style={s.menuAction} onPress={() => handleOpenEditTitle(menuItem)}>
+                  <Text style={s.menuActionIcon}>✏️</Text><Text style={s.menuActionLabel}>编辑名称</Text>
+                </TouchableOpacity>
+                <View style={s.menuSepH} />
+                <TouchableOpacity style={s.menuAction} onPress={() => handleDelete(menuItem)}>
+                  <Text style={s.menuActionIcon}>🗑</Text><Text style={[s.menuActionLabel, { color: '#FF3B30' }]}>删除</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          );
+        })()}
+
         {/* FAB */}
         <TouchableOpacity style={s.fab} onPress={() => setShowCreate(true)}>
           <Text style={s.fabText}>+</Text>
         </TouchableOpacity>
       </View>
+
+      {/* 编辑名称弹窗 */}
+      <Modal visible={showEditTitle} animationType="fade" transparent>
+        <TouchableOpacity style={s.menuBackdrop} activeOpacity={1} onPress={() => setShowEditTitle(false)}>
+          <View style={s.menuCard}>
+            <Text style={s.menuTitle}>编辑清单名称</Text>
+            <TextInput style={s.input} value={editListTitle} onChangeText={setEditListTitle} placeholder="清单名称" placeholderTextColor="#B2BEC3" autoFocus returnKeyType="done" onSubmitEditing={handleSaveEditTitle} />
+            <View style={s.modalBtnRow}>
+              <TouchableOpacity style={s.cancelBtn} onPress={() => setShowEditTitle(false)}>
+                <Text style={s.cancelBtnText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.createBtn} onPress={handleSaveEditTitle}>
+                <Text style={s.createBtnText}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* 新建弹窗 */}
       <Modal visible={showCreate} animationType="slide" transparent>
@@ -259,7 +355,7 @@ const s = StyleSheet.create({
   emptyText: { fontSize: 18, fontWeight: '600', color: '#636E72' },
   gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   card: {
-    width: (SW - 44) / 2, // 两列均分，减去 padding 和 gap
+    width: (SW - 44) / 2,
     borderRadius: 22, padding: 16, minHeight: 145,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.55)',
     shadowColor: '#4A5568', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.06, shadowRadius: 10, elevation: 3,
@@ -295,4 +391,11 @@ const s = StyleSheet.create({
   cancelBtnText: { fontSize: 16, fontWeight: '600', color: '#636E72' },
   createBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: '#2D3436', alignItems: 'center' },
   createBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  menuBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', zIndex: 999 },
+  menuCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, width: SW - 60, maxWidth: 320, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.14, shadowRadius: 20, elevation: 12 },
+  menuTitle: { fontSize: 18, fontWeight: '700', color: '#2D3436', marginBottom: 16 },
+  menuSepH: { height: 1, backgroundColor: 'rgba(45,52,54,0.08)', marginVertical: 8 },
+  menuAction: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4 },
+  menuActionIcon: { fontSize: 18, marginRight: 12 },
+  menuActionLabel: { fontSize: 16, fontWeight: '600', color: '#2D3436' },
 });
