@@ -124,7 +124,7 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
   const [showCelebration, setShowCelebration] = useState(false);
   const celebScale = useRef(new Animated.Value(0)).current;
   const celebOpacity = useRef(new Animated.Value(0)).current;
-  const celebParticlesRef = useRef<{ tx: number; ty: number; emoji: string; x: Animated.Value; y: Animated.Value; sc: Animated.Value; rot: Animated.Value; op: Animated.Value }[]>([]);
+  const celebParticlesRef = useRef<{ tx: number; ty: number; color: string; shape: 'dot' | 'pill' | 'star'; size: number; rotEnd: number; x: Animated.Value; y: Animated.Value; sc: Animated.Value; rot: Animated.Value; op: Animated.Value }[]>([]);
   const celebAnimsRef = useRef<Animated.CompositeAnimation[]>([]);
 
   const [deletingCapsuleId, setDeletingCapsuleId] = useState<string | null>(null);
@@ -152,12 +152,29 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
     }
   }, [dropLeft, dropTop, dropW, dropH, dropOpa]);
 
-  const haloDriver = useRef(new Animated.Value(0)).current;
-  const haloLoopRef = useRef<Animated.CompositeAnimation | null>(null);
-  const startHalo = useCallback(() => { haloLoopRef.current?.stop(); haloDriver.setValue(0); haloLoopRef.current = Animated.loop(Animated.sequence([Animated.timing(haloDriver, { toValue: 1, duration: 1600, useNativeDriver: true }), Animated.timing(haloDriver, { toValue: 0, duration: 1600, useNativeDriver: true })])); haloLoopRef.current.start(); }, [haloDriver]);
-  const stopHalo = useCallback(() => { haloLoopRef.current?.stop(); haloLoopRef.current = null; haloDriver.setValue(0); }, [haloDriver]);
-  const haloOpacity = haloDriver.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] });
-  const haloScale = haloDriver.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
+  const jellyScale = useRef(new Animated.Value(1)).current;
+  const glowDriver = useRef(new Animated.Value(0)).current;
+  const glowOpacity = glowDriver.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] });
+  const glowScale = glowDriver.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.08] });
+  const glowOuterOpacity = glowDriver.interpolate({ inputRange: [0, 1], outputRange: [0, 0.22] });
+  const glowOuterScale = glowDriver.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1.12] });
+  const glowLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const startGlow = useCallback(() => {
+    glowLoopRef.current?.stop();
+    glowDriver.setValue(0);
+    glowLoopRef.current = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowDriver, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(glowDriver, { toValue: 0.2, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    glowLoopRef.current.start();
+  }, [glowDriver]);
+  const stopGlow = useCallback(() => {
+    glowLoopRef.current?.stop();
+    glowLoopRef.current = null;
+    Animated.timing(glowDriver, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+  }, [glowDriver]);
   const isExiting = useRef(false);
 
   const load = useCallback(async () => { const d = await getItemsByList(listId); setItems(d); const ls = await getAllLists(); setListInfo(ls.find(l => l.id === listId) || null); setLoading(false); }, [listId]);
@@ -173,16 +190,23 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
     undoTimer.current = setTimeout(() => { Animated.parallel([Animated.timing(undoSlideAnim, { toValue: -80, duration: 200, useNativeDriver: true }), Animated.timing(undoFadeAnim, { toValue: 0, duration: 200, useNativeDriver: true })]).start(() => setUndoItems(null)); }, 5000);
   }, [undoSlideAnim, undoFadeAnim]);
 
-  // 🎉 庆祝动画 — 交错爆发 + 果冻形变 + 失重漂移 + 优雅退场
+  // 🎉 品牌化流体彩纸 — 纯 View 图形 + JELLY 色系 + 快爆/缓漂/秒收
   const triggerCelebration = useCallback(() => {
-    const cx = SW / 2; const cy = SH / 2;
-    const particles: { tx: number; ty: number; emoji: string; x: Animated.Value; y: Animated.Value; sc: Animated.Value; rot: Animated.Value; op: Animated.Value }[] = [];
-    for (let i = 0; i < 12; i++) {
-      const angle = (i / 12) * Math.PI * 2;
-      const r = 60 + Math.random() * 80;
+    const COLORS = ['#FF9AA2', '#6EB5FF', '#7BC67E', '#FFB347', '#FFD54F', '#4FC3F7', '#F48FB1', '#B39DDB', '#FFAB91', '#80CBC4', '#F06292', '#AED581'];
+    const shapes: Array<'dot' | 'pill' | 'star'> = ['dot', 'pill', 'star'];
+    const particles: { tx: number; ty: number; color: string; shape: 'dot' | 'pill' | 'star'; size: number; rotEnd: number; x: Animated.Value; y: Animated.Value; sc: Animated.Value; rot: Animated.Value; op: Animated.Value }[] = [];
+    const count = 14 + Math.floor(Math.random() * 6);
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * 2 * Math.PI;
+      const radius = 100 + Math.random() * 70;
+      const size = 10 + Math.random() * 18;
+      const rotEnd = (Math.random() - 0.5) * 20;
       particles.push({
-        tx: Math.cos(angle) * r, ty: Math.sin(angle) * r,
-        emoji: ['✨', '💫', '🌟', '⭐'][i % 4],
+        tx: Math.cos(angle) * radius, ty: Math.sin(angle) * radius,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        shape: shapes[i % 3],
+        size,
+        rotEnd,
         x: new Animated.Value(0), y: new Animated.Value(0),
         sc: new Animated.Value(0), rot: new Animated.Value(0), op: new Animated.Value(0),
       });
@@ -193,66 +217,58 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
     celebAnimsRef.current.forEach(a => a.stop());
     celebAnimsRef.current = [];
 
+    // 卡片弹入
     Animated.parallel([Animated.spring(celebScale, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true }), Animated.timing(celebOpacity, { toValue: 1, duration: 300, useNativeDriver: true })]).start();
 
-    // 阶段1: 交错爆发 + 果冻形变
+    // 阶段1: 瞬间爆发 (0~300ms)
     const popAnims = particles.map(p =>
       Animated.parallel([
-        Animated.spring(p.x, { toValue: p.tx, friction: 6, tension: 70, useNativeDriver: true }),
-        Animated.spring(p.y, { toValue: p.ty, friction: 6, tension: 70, useNativeDriver: true }),
-        Animated.sequence([
-          Animated.timing(p.sc, { toValue: 0.8, duration: 80, useNativeDriver: true }),
-          Animated.spring(p.sc, { toValue: 1.1, friction: 3, tension: 60, useNativeDriver: true }),
-          Animated.spring(p.sc, { toValue: 1.0, friction: 4, tension: 40, useNativeDriver: true }),
-        ]),
-        Animated.timing(p.op, { toValue: 1, duration: 150, useNativeDriver: true }),
+        Animated.spring(p.x, { toValue: p.tx, friction: 5, tension: 80, useNativeDriver: true }),
+        Animated.spring(p.y, { toValue: p.ty, friction: 5, tension: 80, useNativeDriver: true }),
+        Animated.spring(p.sc, { toValue: 1, friction: 4, tension: 60, useNativeDriver: true }),
+        Animated.timing(p.op, { toValue: 0.85, duration: 200, useNativeDriver: true }),
       ]),
     );
     celebAnimsRef.current = popAnims;
-    Animated.stagger(30, popAnims).start();
+    Animated.stagger(18, popAnims).start();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    // 阶段2: 失重漂移
-    setTimeout(() => {
-      const driftAnims = particles.map(p =>
-        Animated.parallel([
-          Animated.timing(p.y, { toValue: p.ty + 15, duration: 6000, useNativeDriver: true }),
-          Animated.sequence([
-            Animated.timing(p.rot, { toValue: -12, duration: 3000, useNativeDriver: true }),
-            Animated.timing(p.rot, { toValue: 12, duration: 3000, useNativeDriver: true }),
-          ]),
-        ]),
-      );
-      celebAnimsRef.current = driftAnims;
-      Animated.parallel(driftAnims).start();
-    }, 400);
-
-    // 阶段3: 优雅退场
+    // 阶段2: 微浮 + 淡出 (300~2000ms)
     setTimeout(() => {
       const fadeAnims = particles.map(p =>
         Animated.parallel([
-          Animated.spring(p.x, { toValue: p.tx * 0.2, friction: 4, tension: 30, useNativeDriver: true }),
-          Animated.spring(p.y, { toValue: p.ty * 0.2, friction: 4, tension: 30, useNativeDriver: true }),
-          Animated.timing(p.op, { toValue: 0, duration: 800, useNativeDriver: true }),
-          Animated.timing(p.sc, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+          Animated.timing(p.y, { toValue: p.ty + 22, duration: 2000, useNativeDriver: true }),
+          Animated.timing(p.op, { toValue: 0, duration: 1600, useNativeDriver: true }),
+          Animated.timing(p.sc, { toValue: 0.5, duration: 1600, useNativeDriver: true }),
+          Animated.timing(p.rot, { toValue: p.rotEnd, duration: 2000, useNativeDriver: true }),
         ]),
       );
       celebAnimsRef.current = fadeAnims;
       Animated.parallel(fadeAnims).start();
+    }, 300);
 
-      setTimeout(() => {
-        Animated.parallel([Animated.timing(celebOpacity, { toValue: 0, duration: 500, useNativeDriver: true }), Animated.timing(celebScale, { toValue: 1.5, duration: 500, useNativeDriver: true })]).start(() => {
-          setShowCelebration(false);
-          const limit = listInfoRef.current?.itemLimit || 100; const count = itemsRef.current.length;
-          if ((limit === 10 || limit === 50) && count === limit && count < 100) {
-            const msg = limit === 10 ? '要不要挑战升级至 50 甚至 100 件？' : '要不要挑战 100 件上限？'; const btns: any[] = [{ text: '暂不', style: 'cancel' }];
-            if (limit === 10) { btns.push({ text: '升级至 50', onPress: async () => { await updateListItemLimit(listId, 50); await animateAndRefresh(); } }); btns.push({ text: '直接挑战 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); } }); }
-            else { btns.push({ text: '升级至 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); } }); }
-            Alert.alert('🎉 全部完成！', msg, btns);
-          }
-        });
-      }, 1000);
-    }, 2500);
+    // 阶段3: 粒子向外散开 + 清场 (2600ms)
+    setTimeout(() => {
+      particles.forEach(p => {
+        Animated.timing(p.x, { toValue: p.tx * 1.3, duration: 500, useNativeDriver: true }).start();
+        Animated.timing(p.y, { toValue: p.ty * 1.3, duration: 500, useNativeDriver: true }).start();
+      });
+      Animated.parallel([Animated.timing(celebOpacity, { toValue: 0, duration: 500, useNativeDriver: true }), Animated.timing(celebScale, { toValue: 1.3, duration: 500, useNativeDriver: true })]).start(() => {
+        setShowCelebration(false);
+        const limit = listInfoRef.current?.itemLimit || 100; const count = itemsRef.current.length;
+        if (count === 100 && limit === 100) {
+          Alert.alert('🎉 全部完成！', '太厉害了！你已经完成了100件好事。要不要开启一段全新的旅程？', [
+            { text: '先看看', style: 'cancel' },
+            { text: '开启新旅程 ✨', onPress: () => { isExiting.current = true; stopGlow(); onBack(); } },
+          ]);
+        } else if ((limit === 10 || limit === 50) && count === limit && count < 100) {
+          const msg = limit === 10 ? '要不要挑战升级至 50 甚至 100 件？' : '要不要挑战 100 件上限？'; const btns: any[] = [{ text: '暂不', style: 'cancel' }];
+          if (limit === 10) { btns.push({ text: '升级至 50', onPress: async () => { await updateListItemLimit(listId, 50); await animateAndRefresh(); } }); btns.push({ text: '直接挑战 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); } }); }
+          else { btns.push({ text: '升级至 100', onPress: async () => { await updateListItemLimit(listId, 100); await animateAndRefresh(); } }); }
+          Alert.alert('🎉 全部完成！', msg, btns);
+        }
+      });
+    }, 2600);
   }, [celebScale, celebOpacity, listId]);
 
   const listInfoRef = useRef<GoodList | null>(null); listInfoRef.current = listInfo;
@@ -290,7 +306,7 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
   }, []);
 
   const handleMenuAction = useCallback((action: 'edit' | 'memory' | 'delete') => {
-    const itemId = menuItemIdRef.current; setMenuItemId(null); menuItemIdRef.current = null; stopHalo();
+    const itemId = menuItemIdRef.current; setMenuItemId(null); menuItemIdRef.current = null; stopGlow(); Animated.spring(jellyScale, { toValue: 1, friction: 4, tension: 80, useNativeDriver: true }).start();
     if (!itemId) return;
     const item = items.find(i => i.id === itemId);
     if (!item) return;
@@ -329,7 +345,7 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
         } },
       ]);
     }
-  }, [items, listId, stopHalo, scheduleBounceIn]);
+  }, [items, listId, stopGlow, jellyScale, scheduleBounceIn]);
 
   // 🎯 原地沉浸 & 无损批量选择
   const toggleSelectMode = useCallback(() => {
@@ -391,15 +407,15 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
   };
   const computeTargetIndex = (pageX: number, pageY: number, curItems: GoodItem[], excludeIndex: number) => { const r = findItemAtPoint(pageX, pageY, curItems); if (!r) return excludeIndex; if (r.index === excludeIndex) return excludeIndex; const contentY = pageY - scrollTopRef.current + scrollYRef.current; return contentY >= r.layoutY + r.layoutH / 2 && r.index < curItems.length ? r.index + 1 : r.index; };
   const doJellySpring = useCallback(() => { if (isExiting.current) return; LayoutAnimation.configureNext(LayoutAnimation.create(550, LayoutAnimation.Types.spring, LayoutAnimation.Properties.scaleXY)); }, []);
-  const handleBack = useCallback(() => { isExiting.current = true; stopHalo(); onBack(); }, [onBack, stopHalo]);
+  const handleBack = useCallback(() => { isExiting.current = true; stopGlow(); onBack(); }, [onBack, stopGlow]);
 
   const dragPanResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => menuItemIdRef.current !== null || dragActive.current,
     onMoveShouldSetPanResponder: () => menuItemIdRef.current !== null || dragActive.current,
     onShouldBlockNativeResponder: () => false,
     onPanResponderGrant: () => {},
-    onPanResponderMove: (_, gs) => { const totalMove = Math.abs(gs.dy) + Math.abs(gs.dx); if (!dragActive.current && menuItemIdRef.current && totalMove > 10) { dragActive.current = true; Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setDragVisible(true); stopHalo(); setMenuItemId(null); menuItemIdRef.current = null; dragStartPageX.current = dragStartPageX.current + gs.dx; dragStartPageY.current = dragStartPageY.current + gs.dy; dragOffset.setValue({ x: 0, y: 0 }); return; } if (dragActive.current) { dragOffset.setValue({ x: gs.dx, y: gs.dy }); const curItems = itemsRef.current; const targetIdx = computeTargetIndex(dragStartPageX.current + gs.dx, dragStartPageY.current + gs.dy, curItems, dragSrcIndex.current); if (targetIdx !== highlightIndex) { setHighlightIndex(targetIdx); moveDropIndicator(targetIdx); } } },
-    onPanResponderRelease: (_, gs) => { setHighlightIndex(null); Animated.timing(dropOpa, { toValue: 0, duration: 120, useNativeDriver: false }).start(); if (!dragActive.current) { if (menuItemIdRef.current) { setMenuItemId(null); menuItemIdRef.current = null; stopHalo(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } return; } dragActive.current = false; setDragVisible(false); const curItems = itemsRef.current; if (curItems.length < 2) { dragOffset.setValue({ x: 0, y: 0 }); return; } const targetIdx = computeTargetIndex(dragStartPageX.current + gs.dx, dragStartPageY.current + gs.dy, curItems, dragSrcIndex.current); const srcIdx = dragSrcIndex.current; if (targetIdx === srcIdx || targetIdx < 0 || targetIdx >= curItems.length) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); dragOffset.setValue({ x: 0, y: 0 }); return; } const prevItems = [...curItems]; const next = [...curItems]; const [moved] = next.splice(srcIdx, 1); const insertIdx = targetIdx > srcIdx ? targetIdx - 1 : targetIdx; next.splice(insertIdx, 0, moved); doJellySpring(); setItems(next); showUndo(prevItems); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); dragOffset.setValue({ x: 0, y: 0 }); },
+    onPanResponderMove: (_, gs) => { const totalMove = Math.abs(gs.dy) + Math.abs(gs.dx); if (!dragActive.current && menuItemIdRef.current && totalMove > 10) { dragActive.current = true; Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setDragVisible(true); stopGlow(); setMenuItemId(null); menuItemIdRef.current = null; dragStartPageX.current = dragStartPageX.current + gs.dx; dragStartPageY.current = dragStartPageY.current + gs.dy; dragOffset.setValue({ x: 0, y: 0 }); return; } if (dragActive.current) { dragOffset.setValue({ x: gs.dx, y: gs.dy }); const curItems = itemsRef.current; const targetIdx = computeTargetIndex(dragStartPageX.current + gs.dx, dragStartPageY.current + gs.dy, curItems, dragSrcIndex.current); if (targetIdx !== highlightIndex) { setHighlightIndex(targetIdx); moveDropIndicator(targetIdx); } } },
+    onPanResponderRelease: (_, gs) => { setHighlightIndex(null); Animated.timing(dropOpa, { toValue: 0, duration: 120, useNativeDriver: false }).start(); if (!dragActive.current) { if (menuItemIdRef.current) { setMenuItemId(null); menuItemIdRef.current = null; stopGlow(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } return; } dragActive.current = false; setDragVisible(false); const curItems = itemsRef.current; if (curItems.length < 2) { dragOffset.setValue({ x: 0, y: 0 }); return; } const targetIdx = computeTargetIndex(dragStartPageX.current + gs.dx, dragStartPageY.current + gs.dy, curItems, dragSrcIndex.current); const srcIdx = dragSrcIndex.current; if (targetIdx === srcIdx || targetIdx < 0 || targetIdx >= curItems.length) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); dragOffset.setValue({ x: 0, y: 0 }); return; } const prevItems = [...curItems]; const next = [...curItems]; const [moved] = next.splice(srcIdx, 1); const insertIdx = targetIdx > srcIdx ? targetIdx - 1 : targetIdx; next.splice(insertIdx, 0, moved); doJellySpring(); setItems(next); showUndo(prevItems); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); dragOffset.setValue({ x: 0, y: 0 }); },
     onPanResponderTerminate: () => { setHighlightIndex(null); dragActive.current = false; setDragVisible(false); dragOffset.setValue({ x: 0, y: 0 }); },
   })).current;
 
@@ -455,18 +471,23 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
               <Animated.View key={item.id} style={{ transform: bounceX && bounceY ? [{ translateX: bounceX }, { translateY: bounceY }] : [] }}
                 onLayout={e => { const { y, height, x, width } = e.nativeEvent.layout; layoutMapRef.current.set(item.id, { y, h: height, x, w: width }); }}>
                 {isSelected && (
-                  <Animated.View style={[st.haloRing, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, { borderColor: c, backgroundColor: 'transparent', shadowColor: c, shadowRadius: 20, shadowOpacity: haloOpacity, shadowOffset: { width: 0, height: 0 }, opacity: haloOpacity, transform: [{ scale: haloScale }], elevation: 5 }]} pointerEvents="none" />
+                  <>
+                    <Animated.View style={[st.glowLayer, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, { backgroundColor: c, opacity: glowOuterOpacity, transform: [{ scale: glowOuterScale }] }]} pointerEvents="none" />
+                    <Animated.View style={[st.glowLayer, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, { backgroundColor: c, opacity: glowOpacity, transform: [{ scale: glowScale }] }]} pointerEvents="none" />
+                  </>
                 )}
                 <TouchableOpacity activeOpacity={0.8} delayLongPress={400}
                   onPress={() => { if (isSelectMode) { toggleSelectItem(item.id); return; } toggleStatus(item); }}
-                  onLongPress={() => { if (isSelectMode) return; Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setMenuItemId(item.id); menuItemIdRef.current = item.id; dragItemId.current = item.id; dragSrcIndex.current = index; dragItemColor.current = c; dragItemTitle.current = item.title; dragIsGallery.current = mode === 'gallery'; dragItemFontSize.current = mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize; dragItemPadH.current = mode === 'gallery' ? 20 : f!.padH; dragItemPadV.current = mode === 'gallery' ? 14 : f!.padV; dragItemMinH.current = mode === 'gallery' ? 48 : f!.minH; dragItemCardW.current = mode === 'gallery' ? GALLERY_STYLES.cardWidth : 0; const ly = layoutMapRef.current.get(item.id); dragPillX.current = ly?.x ?? 0; dragPillW.current = ly?.w ?? 80; dragOffset.setValue({ x: 0, y: 0 }); startHalo(); }}>
+                  onPressIn={() => { if (!isSelectMode) { Animated.spring(jellyScale, { toValue: 0.95, friction: 6, tension: 100, useNativeDriver: true }).start(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } }}
+                  onPressOut={() => { if (!menuItemId && !isSelectMode) { Animated.spring(jellyScale, { toValue: 1, friction: 4, tension: 80, useNativeDriver: true }).start(); } }}
+                  onLongPress={() => { if (isSelectMode) return; Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); Animated.spring(jellyScale, { toValue: 1.08, friction: 3, tension: 70, useNativeDriver: true }).start(); startGlow(); setMenuItemId(item.id); menuItemIdRef.current = item.id; dragItemId.current = item.id; dragSrcIndex.current = index; dragItemColor.current = c; dragItemTitle.current = item.title; dragIsGallery.current = mode === 'gallery'; dragItemFontSize.current = mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize; dragItemPadH.current = mode === 'gallery' ? 20 : f!.padH; dragItemPadV.current = mode === 'gallery' ? 14 : f!.padV; dragItemMinH.current = mode === 'gallery' ? 48 : f!.minH; dragItemCardW.current = mode === 'gallery' ? GALLERY_STYLES.cardWidth : 0; const ly = layoutMapRef.current.get(item.id); dragPillX.current = ly?.x ?? 0; dragPillW.current = ly?.w ?? 80; dragOffset.setValue({ x: 0, y: 0 }); }}>
                   {isDeleting ? (
                     <Animated.View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: isDone ? `${c}66` : c }, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, { opacity: capsuleDelOpacity, transform: [{ scale: capsuleDelScale }] }]}>
                       <Text style={{ fontSize: mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize, fontWeight: isDone ? '400' : '600', color: isDone ? '#B2BEC3' : '#2D3436', textDecorationLine: isDone ? 'line-through' : 'none' }}>{item.title}</Text>
                       {mem && <View style={pil.g}><Text style={pil.gt}>✦</Text></View>}
                     </Animated.View>
                   ) : (
-                    <View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: isDone ? `${c}66` : c }, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, isHighlighted && st.highlightPill, isSelected && st.selectedLift]}>
+                    <View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: isDone ? `${c}66` : c }, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, isHighlighted && st.highlightPill, isSelected && st.selectedLift, isSelectMode && selectedIds.has(item.id) && st.pillChecked]}>
                       <Text style={{ fontSize: mode === 'gallery' ? GALLERY_STYLES.fontSize : f!.fontSize, fontWeight: isDone ? '400' : '600', color: isDone ? '#B2BEC3' : '#2D3436', textDecorationLine: isDone ? 'line-through' : 'none' }}>{item.title}</Text>
                       {mem && <View style={pil.g}><Text style={pil.gt}>✦</Text></View>}
                     </View>
@@ -481,23 +502,48 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
 
       {highlightIndex !== null && dragActive.current && (<Animated.View style={[st.dropGlow, { position: 'absolute', left: dropLeft, top: dropTop, width: dropW, height: dropH, opacity: 0.85, backgroundColor: dragItemColor.current, shadowColor: dragItemColor.current }]} pointerEvents="none" />)}
       {undoItems && (<Animated.View style={[st.undoFloater, { transform: [{ translateY: undoSlideAnim }], opacity: undoFadeAnim }]} pointerEvents="box-none"><BlurView intensity={85} tint="light" style={st.undoFloaterInner}><Text style={st.undoText}>已重新排序</Text><TouchableOpacity onPress={() => { if (!undoItems) return; doJellySpring(); setItems(undoItems); if (undoTimer.current) clearTimeout(undoTimer.current); setUndoItems(null); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity><TouchableOpacity onPress={() => { if (undoTimer.current) clearTimeout(undoTimer.current); setUndoItems(null); }} style={st.undoClose}><Text style={st.undoCloseText}>✕</Text></TouchableOpacity></BlurView></Animated.View>)}
-      {menuItem && (<View style={[st.menuOverlay, { top: scrollTopRef.current + (layoutMapRef.current.get(menuItemId!)?.y ?? 0) + (layoutMapRef.current.get(menuItemId!)?.h ?? 44) - scrollYRef.current + 8 }]} pointerEvents="box-none"><BlurView intensity={90} tint="prominent" style={st.menuBox}><TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('edit')}><Text style={st.menuIcon}>✏️</Text><Text style={st.menuLabel}>编辑</Text></TouchableOpacity><View style={st.menuSep} /><TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('memory')}><Text style={st.menuIcon}>💭</Text><Text style={st.menuLabel}>手记</Text></TouchableOpacity><View style={st.menuSep} /><TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('delete')}><Text style={st.menuIcon}>🗑</Text><Text style={[st.menuLabel, { color: '#FF3B30' }]}>删除</Text></TouchableOpacity></BlurView></View>)}
+      {menuItem && (
+        <View style={[st.menuOverlay, { top: scrollTopRef.current + (layoutMapRef.current.get(menuItemId!)?.y ?? 0) + (layoutMapRef.current.get(menuItemId!)?.h ?? 44) - scrollYRef.current + 8 }]} pointerEvents="box-none">
+            <BlurView intensity={90} tint="prominent" style={st.menuBox}>
+              <TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('edit')}><Text style={st.menuIcon}>✏️</Text><Text style={st.menuLabel}>编辑</Text></TouchableOpacity>
+              <View style={st.menuSep} />
+              <TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('memory')}><Text style={st.menuIcon}>💭</Text><Text style={st.menuLabel}>手记</Text></TouchableOpacity>
+              <View style={st.menuSep} />
+              <TouchableOpacity style={st.menuRow} onPress={() => handleMenuAction('delete')}><Text style={st.menuIcon}>🗑</Text><Text style={[st.menuLabel, { color: '#FF3B30' }]}>删除</Text></TouchableOpacity>
+            </BlurView>
+        </View>
+      )}
       {dragVisible && draggedItem && (<Animated.View style={[st.dragOverlay, { top: coverTop, left: coverX, transform: [{ translateX: dragOffset.x }, { translateY: dragOffset.y }] }]} pointerEvents="none"><View style={[mode === 'gallery' ? st.galleryCard : pil.p, { backgroundColor: dragItemColor.current, width: mode === 'gallery' ? dragItemCardW.current : undefined }, mode !== 'gallery' && { paddingHorizontal: dragItemPadH.current, paddingVertical: dragItemPadV.current, minHeight: dragItemMinH.current }, st.dragPillShadow]}><Text style={{ fontSize: dragItemFontSize.current, fontWeight: '700', color: '#2D3436', maxWidth: mode === 'gallery' ? undefined : 180 }} numberOfLines={mode === 'gallery' ? 2 : 1}>{dragItemTitle.current}</Text></View></Animated.View>)}
       {isSelectMode && selectedIds.size > 0 && (<View style={st.batchBar}><BlurView intensity={85} tint="light" style={st.batchBarInner}><TouchableOpacity style={[st.batchBtn, st.batchBtnComplete]} onPress={batchComplete}><Text style={st.batchBtnTextComplete}>完成 ({selectedIds.size})</Text></TouchableOpacity><TouchableOpacity style={[st.batchBtn, st.batchBtnDelete]} onPress={batchDelete}><Text style={st.batchBtnTextDelete}>删除 ({selectedIds.size})</Text></TouchableOpacity></BlurView></View>)}
       {showCelebration && (
-        <Animated.View style={[st.celebOverlay, { opacity: celebOpacity }]} pointerEvents="box-none">
+        <Animated.View style={[st.celebOverlay, { opacity: celebOpacity, zIndex: 999, elevation: 999 }]} pointerEvents="box-none">
           <BlurView intensity={20} tint="light" style={StyleSheet.absoluteFill} />
-          {celebParticlesRef.current.map((p, i) => (
-            <Animated.Text key={i} style={[st.celebParticle, { left: SW / 2 - 16, top: SH / 2 - 16, opacity: p.op, fontSize: 28, transform: [{ translateX: p.x }, { translateY: p.y }, { scale: p.sc }, { rotate: p.rot.interpolate({ inputRange: [-15, 15], outputRange: ['-15deg', '15deg'] }) }] }]}>{p.emoji}</Animated.Text>
-          ))}
           <Animated.View style={[st.celebCenter, { transform: [{ scale: celebScale }] }]}>
             <Text style={st.celebTitle}>🎉 全部完成！</Text>
             <Text style={st.celebSub}>太棒了！</Text>
           </Animated.View>
+          <Animated.View style={StyleSheet.absoluteFill} pointerEvents="none">
+            {celebParticlesRef.current.map((p, i) => (
+              <Animated.View
+                key={i}
+                style={{
+                  position: 'absolute',
+                  left: SW / 2 - p.size / 2,
+                  top: SH / 2 - p.size / 2,
+                  width: p.shape === 'pill' ? p.size * 2.5 : p.size,
+                  height: p.size,
+                  borderRadius: p.shape === 'star' ? 1 : p.shape === 'pill' ? 8 : 99,
+                  backgroundColor: p.color,
+                  opacity: p.op,
+                  transform: [{ translateX: p.x }, { translateY: p.y }, { scale: p.sc }, { rotate: p.rot.interpolate({ inputRange: [-10, 0, 10], outputRange: ['-10deg', '0deg', '10deg'] }) }],
+                }}
+              />
+            ))}
+          </Animated.View>
         </Animated.View>
       )}
       <MemoryModal visible={modalVisible} item={selectedItem} onClose={onClose} onSaved={onSave} />
-      <AddItemOverlay visible={showAddOverlay} onAdd={handleAddItem} onClose={() => setShowAddOverlay(false)} currentCount={items.length} maxCount={listInfo?.itemLimit || 100} />
+      <AddItemOverlay visible={showAddOverlay} onAdd={handleAddItem} onClose={() => setShowAddOverlay(false)} currentCount={items.length} maxCount={listInfo?.itemLimit || 100} existingItems={items.map(i => i.title)} themeKey={listInfo?.themeType} />
     </View>
   );
 }
@@ -532,8 +578,9 @@ const st = StyleSheet.create({
   menuLabel: { fontSize: 14, color: '#2D3436', fontWeight: '600' }, menuSep: { width: 1, height: 20, backgroundColor: 'rgba(45,52,54,0.1)', alignSelf: 'center' },
   dragOverlay: { position: 'absolute', zIndex: 999 }, dragPillShadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 16, elevation: 16, transform: [{ scale: 1.12 }] },
   highlightPill: { borderColor: 'rgba(255,215,0,0.5)', borderWidth: 2, shadowColor: '#FFD700', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
-  haloRing: { position: 'absolute', top: -6, left: -6, right: -6, bottom: -6, borderRadius: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 4, zIndex: 1 },
+  glowLayer: { position: 'absolute', top: -6, left: -6, right: -6, bottom: -6, borderRadius: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.08, shadowRadius: 4, zIndex: 1 },
   selectedLift: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 15, elevation: 6 },
+  pillChecked: { borderColor: '#E67E22', borderWidth: 2.5, backgroundColor: 'rgba(255,167,38,0.08)', shadowColor: '#E67E22', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 5 },
   dropGlow: { borderRadius: 3, zIndex: 2, shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 }, elevation: 4 },
   batchBar: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 12, paddingBottom: Platform.OS === 'ios' ? 34 : 12 },
   batchBarInner: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.7)', gap: 10 },

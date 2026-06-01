@@ -8,7 +8,8 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "jsEngine": "hermes"
+      "jsEngine": "hermes",
+      "bundleIdentifier": "com.hanson601.goodthings100"
     },
     "android": {
       "jsEngine": "hermes",
@@ -25,6 +26,12 @@
     },
     "plugins": [
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7e13f854-1cd7-48ea-841e-75c9b4809b47"
+      }
+    },
+    "owner": "hanson601"
   }
 }

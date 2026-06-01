@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Keyboard,
   Platform,
@@ -9,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { TEMPLATES } from '../services/templates';
 
 interface Props {
   visible: boolean;
@@ -17,10 +18,36 @@ interface Props {
   onClose: () => void;
   currentCount: number;
   maxCount: number;
+  existingItems: string[];
+  themeKey?: string;
 }
 
-export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, maxCount }: Props) {
+function pickItem(exclude: string[], themeKey?: string): string {
+  const excludeSet = new Set(exclude.map(s => s.trim()));
+  const all = Object.values(TEMPLATES).filter(t => t.items.length > 0);
+  if (!all.length) return '';
+
+  // 优先从当前主题模板抽取
+  if (themeKey) {
+    const themed = TEMPLATES[themeKey];
+    if (themed && themed.items.length > 0) {
+      const pool = themed.items.filter(item => !excludeSet.has(item));
+      if (pool.length > 0) return pool[Math.floor(Math.random() * pool.length)];
+    }
+  }
+
+  // fallback: 从所有模板随机
+  const t = all[Math.floor(Math.random() * all.length)];
+  const pool = t.items.filter(item => !excludeSet.has(item));
+  if (pool.length) return pool[Math.floor(Math.random() * pool.length)];
+
+  const fallback = all[Math.floor(Math.random() * all.length)].items;
+  return fallback[Math.floor(Math.random() * fallback.length)] || '';
+}
+
+export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, maxCount, existingItems, themeKey }: Props) {
   const [text, setText] = useState('');
+  const [isSuggested, setIsSuggested] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(100)).current;
@@ -29,6 +56,7 @@ export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, 
   useEffect(() => {
     if (visible) {
       setText('');
+      setIsSuggested(false);
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
         Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }),
@@ -52,41 +80,59 @@ export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, 
   const handleSubmit = () => {
     const val = text.trim();
     if (!val) return;
-    // 不再在此拦截 currentCount >= maxCount，交由 handleAddItem 的里程碑弹窗处理
+    const isDup = existingItems.some(i => i.trim() === val);
+    if (isDup) {
+      Alert.alert('重复提醒', `「${val}」已存在于本列表中，确定仍然添加？`, [
+        { text: '取消', style: 'cancel' },
+        { text: '仍然添加', onPress: () => { onAdd(val); setText(''); setIsSuggested(false); } },
+      ]);
+      return;
+    }
     onAdd(val);
     setText('');
-    onClose();
+    setIsSuggested(false);
+  };
+
+  const handleSuggest = () => {
+    const item = pickItem(existingItems, themeKey);
+    if (item) { setText(item); setIsSuggested(true); }
+  };
+
+  const handleChangeText = (t: string) => {
+    setText(t);
+    if (isSuggested && t !== text) setIsSuggested(false);
   };
 
   return (
-    <View style={s.overlay}>
-      {/* 毛玻璃背景 */}
-      <Animated.View style={[s.bg, { opacity: fadeAnim }]}>
-        <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
-      </Animated.View>
-
-      {/* 输入面板 */}
-      <Animated.View style={[s.panel, { transform: [{ translateY: slideAnim }], bottom: kbHeight + 20 }]}>
+    <View style={s.overlay} pointerEvents="box-none">
+      <Animated.View style={[s.panel, { transform: [{ translateY: slideAnim }], bottom: kbHeight + 20 }]} pointerEvents="auto">
         <View style={s.panelInner}>
-          <View style={s.handle} />
+          <View style={s.handleRow}>
+            <View style={s.handle} />
+            <TouchableOpacity onPress={onClose} style={s.closeBtn}><Text style={s.closeBtnText}>✕</Text></TouchableOpacity>
+          </View>
           <TextInput
             ref={inputRef}
-            style={s.input}
+            style={[s.input, isSuggested && s.inputSuggested]}
             placeholder="添加新事项..."
             placeholderTextColor="#B2BEC3"
             value={text}
-            onChangeText={setText}
+            onChangeText={handleChangeText}
             onSubmitEditing={handleSubmit}
             returnKeyType="done"
             maxLength={50}
             autoFocus
           />
           <View style={s.footer}>
-            <Text style={s.charCount}>{currentCount}/{maxCount}</Text>
-            <TouchableOpacity style={s.addBtn} onPress={handleSubmit} disabled={maxCount >= 100 && currentCount >= 100}>
-              <Text style={s.addBtnText}>添加</Text>
+            <TouchableOpacity style={s.suggestBtn} onPress={handleSuggest}>
+              <Text style={s.suggestBtnText}>✨ 建议生成</Text>
             </TouchableOpacity>
+            <View style={s.footerRight}>
+              <Text style={s.charCount}>{currentCount}/{maxCount}</Text>
+              <TouchableOpacity style={s.addBtn} onPress={handleSubmit} disabled={maxCount >= 100 && currentCount >= 100}>
+                <Text style={s.addBtnText}>添加</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Animated.View>
@@ -102,9 +148,9 @@ const s = StyleSheet.create({
   },
   bg: { ...StyleSheet.absoluteFillObject },
   panel: {
-    position: 'absolute',
     left: 16,
     right: 16,
+    bottom: 20,
   },
   panelInner: {
     backgroundColor: 'rgba(255,255,255,0.9)',
@@ -118,13 +164,30 @@ const s = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
+  handleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
   handle: {
     width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: 'rgba(45,52,54,0.1)',
-    alignSelf: 'center',
-    marginBottom: 16,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(45,52,54,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: {
+    fontSize: 12,
+    color: '#7A8A9E',
+    fontWeight: '600',
   },
   input: {
     fontSize: 18,
@@ -136,10 +199,32 @@ const s = StyleSheet.create({
     paddingVertical: Platform.OS === 'ios' ? 14 : 10,
     marginBottom: 12,
   },
+  inputSuggested: {
+    color: '#E67E22',
+    backgroundColor: '#FFF3E0',
+  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  suggestBtn: {
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: 'rgba(255,167,38,0.25)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  suggestBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E67E22',
+  },
+  footerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   charCount: {
     fontSize: 12,
