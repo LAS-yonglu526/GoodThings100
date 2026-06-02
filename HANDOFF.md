@@ -1,6 +1,6 @@
 # 好事100 — 项目交接状态文档
 
-> 最后更新: 2026-06-01 20:20 (Asia/Shanghai)  
+> 最后更新: 2026-06-02 15:10 (Asia/Shanghai)  
 > Expo SDK 54 / React Native 0.81 / TypeScript 5.9
 
 ---
@@ -19,6 +19,7 @@
 | 数据库 | SQLite (`expo-sqlite`, 单文件 `goodthings.db`) |
 | 触觉反馈 | `expo-haptics` |
 | 图片 | `expo-image-picker` + `expo-file-system/legacy` |
+| 分享截图 | `react-native-view-shot` + `expo-sharing` |
 | 后端 | Supabase (Email OTP 登录，Phone OTP 废弃) |
 | Apple 登录 | `expo-apple-authentication` (前端 UI 占坑，后端注释待激活) |
 
@@ -34,17 +35,18 @@ d:\GoodThings100\
     ├── config/
     │   └── supabase.ts               # Supabase client 配置
     ├── services/
-    │   ├── database.ts               # SQLite CRUD (lists + good_items) + updateListTitle
+    │   ├── database.ts               # SQLite CRUD (lists + good_items) + getCompletedItemTitles
     │   ├── imageStorage.ts           # 图片选择 + 本地持久化
     │   ├── templates.ts              # 8套主题模板 (各125条左右)
     │   └── auth.ts                   # Supabase Email OTP 登录 + 备份恢复
     ├── screens/
-    │   ├── ListHomeScreen.tsx        # 首页: 清单目录网格 + 浮动球 + 长按编辑/删除菜单 + 果冻删除动画
-    │   ├── ListDetailScreen.tsx      # 详情: 胶囊列表 + 批量选择(原地暗化) + 5秒撤销缓存池 + 品牌化流体彩纸庆祝动画 + 双段果冻物理学长按高亮 + 里程碑
+    │   ├── ListHomeScreen.tsx        # 首页: 清单目录网格 + 浮动球 + 长按编辑/删除菜单 + 分享清单入口 + 果冻删除动画
+    │   ├── ListDetailScreen.tsx      # 详情: 胶囊列表 + 批量选择(原地暗化) + 5秒撤销缓存池 + 品牌化流体彩纸庆祝动画 + 双段果冻物理学长按高亮 + 里程碑 + 手记提醒
     │   └── SettingsScreen.tsx        # 设置: Email 登录 + Sign in with Apple 占坑 + 备份恢复
     └── components/
         ├── MemoryModal.tsx           # 手记编辑弹窗 (文字+图片)
-        └── AddItemOverlay.tsx        # 添加面板 (建议生成+主题感知+重复检测+果冻高亮色)
+        ├── AddItemOverlay.tsx        # 添加面板 (建议生成+主题感知+重复检测+果冻高亮色)
+        └── ShareCard.tsx             # 🆕 分享海报生成器 (三样式左右滑动)
 ```
 
 ### 页面导航架构 (非 React Navigation)
@@ -76,6 +78,9 @@ d:\GoodThings100\
 | `width`, `height` | **必须 `false`** | 布局属性，原生驱动不支持 |
 
 **关键规则**：同一个 `Animated.Value` 节点一旦被 `useNativeDriver: true` 动画驱动过，就不能再用 `useNativeDriver: false` 驱动。**layout 属性和 transform 属性必须使用不同的 Animated.Value 节点，严禁混用。**
+
+### 2.3 Rules of Hooks
+⚠️ 组件内所有 hook 调用必须在任何条件 return 之前。`if (!visible) return null` 必须放在所有 `useRef`/`useState`/`useEffect`/`useCallback` 之后。
 
 ---
 
@@ -133,9 +138,9 @@ cd d:\GoodThings100 && npx expo start -c --tunnel
 ### 5.3 5秒撤销缓存池
 - `batchComplete` / `batchDelete` 先乐观更新 UI（立即修改/移除条目）
 - 操作数据存入 `batchCacheRef`
-- 复用 `undoFloater` 毛玻璃提示条，显示 "已删除 N 项 [撤销]"
+- 毛玻璃提示条 "已删除 N 项 [撤销] [✕]"
 - 5 秒内点击撤销 → 从缓存恢复 `prevItems`
-- 5 秒后自动执行真实的 SQLite `deleteItem` / `updateItemStatus`
+- 5 秒后自动执行真实的 SQLite
 
 ### 5.4 关键函数
 | 函数 | 说明 |
@@ -147,91 +152,42 @@ cd d:\GoodThings100 && npx expo start -c --tunnel
 | `handleBatchUndo` | 撤销批量操作 |
 | `executeBatchInDB` | 真实数据库操作（5秒后调用） |
 
+### 5.5 单条删除手记提醒 🆕
+- `memoryWarnedRef`：单次进入清单首次删除有手记内容的胶囊时弹出二次确认 "手记提醒"
+- 退出清单一再进入后重置，重新触发
+
 ---
 
-## 6. 🎉 品牌化流体彩纸庆祝动画（废弃Emoji，纯原生）
+## 6. 🎉 品牌化流体彩纸庆祝动画
 
-### 6.1 设计理念
-**彻底废弃系统 Emoji**（✨💫🌟⭐），改用纯 `Animated.View` 渲染的品牌基因图形，从 App JELLY 色系随机取色。视觉语言统一、克制、高级。
-
-### 6.2 粒子基因
-| 图形 | 实现 | 形态 |
-|------|------|------|
-| 小圆点 dot | `borderRadius: 99` | 圆点 |
-| 微型胶囊 pill | `borderRadius: 8`, `width: size*2.5` | 呼应胶囊主题 |
-| 四芒星 star | `borderRadius: 1` | 简洁十字星 |
-
-### 6.3 色彩限定
-从 JELLY 色系加深为材质级色板：
-```
-'#FF9AA2', '#6EB5FF', '#7BC67E', '#FFB347', '#FFD54F',
-'#4FC3F7', '#F48FB1', '#B39DDB', '#FFAB91', '#80CBC4',
-'#F06292', '#AED581'
-```
-
-### 6.4 动画三阶段（纯 `useNativeDriver: true`）
-
-| 阶段 | 时间 | 实现 |
-|------|------|------|
-| 瞬间爆发 | 0~300ms | `Animated.spring` 炸开至半径 100~170，`Animated.stagger(18)` 次第弹射，scale `spring` 至1，opacity `timing` 至0.85 |
-| 微浮淡出 | 300~2000ms | Y轴 +22 微浮，opacity→0，scale→0.5，rotate 至随机±10°，全程 `timing` |
-| 向外散开+清场 | 2000~2600ms | 粒子 X/Y ×1.3 向外散开，整体 overlay fade + scale，setShowCelebration(false) |
-
-### 6.5 完整生命周期
-~3 秒（300ms 爆发 + 1700ms 微浮 + 600ms 散开），快速收场归还用户焦点。
-
-### 6.6 层级与安全区
-- 粒子容器 `pointerEvents="none"`，不拦截用户触摸
-- 散布半径 100~170，避开中心白色卡片文字区
+（内容同上一版本，略）
 
 ---
 
 ## 7. 双段果冻物理学长按高亮（零损耗光晕）
 
-### 7.1 架构决策
-**绝对禁止对 `shadowOpacity`/`shadowRadius` 进行动画**（不支持 `useNativeDriver`）。采用"剥离式重构"——在胶囊底层绝对定位 `glowLayer`（`Animated.View`），只对 opacity 和 scale 做动画，完美支持 Native Driver。
-
-### 7.2 双层光晕呼吸
-| 层 | 变量 | opacity 范围 | scale 范围 | 效果 |
-|----|------|-------------|-----------|------|
-| 外层 | `glowOuterOpacity/Scale` | 0↔0.22 | 0.88↔1.12 | 大面积扩散光晕 |
-| 内层 | `glowOpacity/Scale` | 0↔0.55 | 0.92↔1.08 | 核心呼吸光晕 |
-
-`Animated.loop` 交替循环（各900ms），菜单关闭时 `stopGlow()` 快速归零。
-
-### 7.3 双段果冻触感 (Press-n-Pop)
-
-| 阶段 | 触发 | 效果 | 触觉反馈 |
-|------|------|------|----------|
-| 蓄力 | `onPressIn` | `jellyScale` spring 至 0.95 | `ImpactFeedbackStyle.Light` |
-| 爆发 | `onLongPress` | `jellyScale` spring 至 1.08 + `startGlow()` | `ImpactFeedbackStyle.Medium` |
-| 回弹 | 菜单关闭 | `jellyScale` spring 回 1.0 + `stopGlow()` | — |
-
-所有动画 `useNativeDriver: true`，光晕零 JS 线程开销。
+（内容同上一版本，略）
 
 ---
 
 ## 8. 果冻删除动画体系
 
-### 7.1 首页目录卡片删除
-`LayoutAnimation.Presets.spring` — 被删卡片缩小淡出 + 其余卡片 Q 弹补位。
-
-### 7.2 胶囊删除
-三段式原生弹簧：
-1. `Animated.spring(scale→0.6)` + `Animated.timing(opacity→0)` — 280ms 果冻淡出
-2. `InteractionManager.runAfterInteractions` + `setTimeout(100ms)` 等布局稳定
-3. `scheduleBounceIn` — 其余胶囊 `Animated.spring(friction:4, tension:80)` 原生弹簧补位
+（内容同上一版本，略）
 
 ---
 
 ## 9. 登录系统
 
-### 8.1 当前方案
+### 9.1 当前方案
 - **Email OTP**：`sendEmailOTP` / `verifyEmailOTP`（Supabase 免费额度）
-- 已废弃 Phone OTP（需 Twilio 付费配置）
+- 已废弃 Phone OTP
 
-### 8.2 新增 API
-- `updateListTitle(listId, title)` — 编辑清单名称
+### 9.2 ⚠️ Supabase 邮件模板配置
+Supabase 默认发 Magic Link，需在后台改为 OTP 验证码格式：
+1. 打开 https://supabase.com/dashboard/project/kbkvdsavgsiikscqengi
+2. Authentication → Email Templates
+3. 在模板中加入 `{{ .Token }}`（6位验证码）
+4. 保存
 
 ---
 
@@ -258,9 +214,76 @@ cd d:\GoodThings100 && npx expo start -c --tunnel
 | memoryText | TEXT | 手记文字 |
 | mediaUris | TEXT | 手记图片 JSON 数组 |
 
+### 🆕 新增数据库函数
+- `getCompletedItemTitles(listId)` — 获取已完成条目标题列表，用于分享卡片展示
+
 ---
 
-## 11. 启动方式
+## 11. 🆕 分享卡片系统 (ShareCard)
+
+### 11.1 入口
+- 首页长按清单卡片 → 弹出菜单中点「📤 分享清单」
+
+### 11.2 技术实现
+- `captureRef()`（`react-native-view-shot` 函数式 API）直接对 View 截图
+- `expo-sharing` 调用系统分享面板
+
+### 11.3 当前状态
+
+**✅ 已完成：**
+- 极简面板：半透明背景 + 三张海报左右滑动 + 分享按钮
+- 卡片1（进度概览）：图标 + 标题 + 进度条 + 完成统计
+- 卡片2（环绕瀑布）：中心清单名称 + 42 个胶囊沿 4 层同心圆环绕
+- 卡片3（紧凑网格）：全部已完成胶囊紧凑双列排布
+- 三张卡片自适应内容高度（各论各的，不强行统一）
+- 无边框、无毛玻璃外壳、无标题栏
+
+**轨道参数（当前，2026-06-02）：**
+| 环 | 半径 | 胶囊数 | fontSize | 弧长 |
+|----|------|--------|----------|------|
+| 1 | 54 | 2 | 14 | 170px |
+| 2 | 82 | 4 | 12 | 129px |
+| 3 | 110 | 6 | 10.5 | 115px |
+| 4 | 136 | 8 | 9 | 107px |
+
+### 11.4 ⚠️ 已知问题和待优化项
+
+1. **环绕胶囊碰撞风险依然存在**
+   - 内环 (r=54) 只放了 2 个胶囊（弧长 170px > 9字标题126px），理论安全系数足够
+   - 但外环 (r=136) 8 个 fontSize=9 的胶囊，弧长 107px，9字标题约 81px+16px=97px<107px，处于临界
+   - 较长的 12 字中文标题（108px）在第四环可能碰撞
+   - **建议**：后续改为按实际文字像素宽度精确计算 x 偏移，或减少每环数量进一步增加安全间距
+
+2. **卡片2 缺少高亮边界**
+   - 胶囊颜色继承了 JELLY 色系但无边框，在白底上辨识度下降
+   - **建议**：可加 1px 半透明边框回退，或加深背景色不透明度
+
+3. **ScrollView 分页体验**
+   - `snapToInterval` 分页在三个卡片高度不一致时，垂直居中对齐偶有跳动
+   - **建议**：可尝试 `snapToAlignment="center"` 或给三张卡片统一 `minHeight`
+
+4. **分享截图质量**
+   - `captureRef` PNG 输出 0.95 质量，暂未适配 Android 的 `result: 'tmpfile'`
+   - **建议**：后续可分平台处理
+
+---
+
+## 12. 模板清单名称空格修复
+
+### 12.1 问题
+`TEMPLATE_LIST` 中标题含全角空格 `\u3000`（如 `'　恋爱　'`），用于模板选择器按钮居中。用户不填自定义名时，全角空格直接写入数据库清单名，显示为 `"　恋爱　"` 带多余空白。
+
+### 12.2 修复（`ListHomeScreen.tsx` handleCreate）
+```
+const tplTitle = TEMPLATE_LIST.find((t) => t.key === selectedTemplate)?.title || '新建清单';
+const title = newTitle.trim() || tplTitle.replace(/[\u3000]/g, '').trim();
+```
+- 用户输入 → 保留原样（含用户主动敲入的空格）
+- 模板默认 → 剥离全角空格后写入数据库
+
+---
+
+## 13. 启动方式
 
 ```bash
 cd d:\GoodThings100
@@ -268,9 +291,7 @@ npx expo start -c      # LAN 模式（清缓存，推荐）
 node start-tunnel.js    # 自动化 bore 隧道调试
 ```
 
-使用 **Expo Go** (iOS/Android) 扫描终端中的二维码。
-
 ---
 
-**文档版本**: 5.0  
+**文档版本**: 7.0  
 **生成者**: Cline (Claude)

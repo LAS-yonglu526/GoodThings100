@@ -78,9 +78,10 @@ interface Props {
   refreshKey: number;
   onSelectList: (listId: string, cardLayout: CardLayout) => void;
   onGoSettings: () => void;
+  onShareList?: (list: GoodList) => void;
 }
 
-export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings }: Props) {
+export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings, onShareList }: Props) {
   const [lists, setLists] = useState<GoodList[]>([]);
   const [loading, setLoading] = useState(true);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
@@ -120,7 +121,8 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings 
   const handleCreate = async () => {
     const tpl = TEMPLATES[selectedTemplate];
     const id = `list_${Date.now()}`;
-    const title = newTitle.trim() || TEMPLATE_LIST.find((t) => t.key === selectedTemplate)?.title || '新建清单';
+    const tplTitle = TEMPLATE_LIST.find((t) => t.key === selectedTemplate)?.title || '新建清单';
+    const title = newTitle.trim() || tplTitle.replace(/[\u3000]/g, '').trim();
     await createList(id, title, tpl.themeType, tpl.iconEmoji, tpl.coverColor, selectedLimit);
     if (tpl.items.length > 0) {
       await bulkInsertItems(id, tpl.items.slice(0, selectedLimit));
@@ -266,6 +268,14 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings 
                   <Text style={s.menuActionIcon}>✏️</Text><Text style={s.menuActionLabel}>编辑名称</Text>
                 </TouchableOpacity>
                 <View style={s.menuSepH} />
+                {onShareList && (
+                  <>
+                    <TouchableOpacity style={s.menuAction} onPress={() => { setMenuListId(null); onShareList(menuItem); }}>
+                      <Text style={s.menuActionIcon}>📤</Text><Text style={s.menuActionLabel}>分享清单</Text>
+                    </TouchableOpacity>
+                    <View style={s.menuSepH} />
+                  </>
+                )}
                 <TouchableOpacity style={s.menuAction} onPress={() => handleDelete(menuItem)}>
                   <Text style={s.menuActionIcon}>🗑</Text><Text style={[s.menuActionLabel, { color: '#FF3B30' }]}>删除</Text>
                 </TouchableOpacity>

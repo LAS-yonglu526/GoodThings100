@@ -120,6 +120,11 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
   const [batchUndoLabel, setBatchUndoLabel] = useState('');
   const batchUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoShownRef = useRef(false); // 防止重复弹出
+  const batchUndoSlide = useRef(new Animated.Value(-80)).current;
+  const batchUndoFade = useRef(new Animated.Value(0)).current;
+
+  // 🧠 单条删除手记提醒：单次进入清单仅触发一次
+  const memoryWarnedRef = useRef(false);
 
   const [showCelebration, setShowCelebration] = useState(false);
   const celebScale = useRef(new Animated.Value(0)).current;
@@ -178,7 +183,7 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
   const isExiting = useRef(false);
 
   const load = useCallback(async () => { const d = await getItemsByList(listId); setItems(d); const ls = await getAllLists(); setListInfo(ls.find(l => l.id === listId) || null); setLoading(false); }, [listId]);
-  useEffect(() => { initDatabase().then(() => load()); }, [load]);
+  useEffect(() => { memoryWarnedRef.current = false; initDatabase().then(() => load()); }, [load]);
 
   const animateAndRefresh = async () => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); await load(); };
 
@@ -313,36 +318,47 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
     if (action === 'edit') { setEditingId(item.id); setEditText(item.title); }
     else if (action === 'memory') { setSelectedItem(item); setModalVisible(true); }
     else if (action === 'delete') {
+      const doDelete = () => {
+        setDeletingCapsuleId(item.id);
+        capsuleDelScale.setValue(1); capsuleDelOpacity.setValue(1);
+        Animated.parallel([
+          Animated.spring(capsuleDelScale, { toValue: 0.6, friction: 7, tension: 40, useNativeDriver: true }),
+          Animated.timing(capsuleDelOpacity, { toValue: 0, duration: 280, useNativeDriver: true }),
+        ]).start(() => {
+          const oldMap = new Map(layoutMapRef.current);
+          const oldItemsArr = itemsRef.current;
+          setItems(prev => prev.filter(i => i.id !== item.id));
+          setDeletingCapsuleId(null);
+          deleteItem(item.id, listId);
+          InteractionManager.runAfterInteractions(() => {
+            setTimeout(() => {
+              const offsets: [string, number, number][] = [];
+              const newMap = layoutMapRef.current;
+              oldItemsArr.forEach(oi => {
+                if (oi.id === item.id) return;
+                const old = oldMap.get(oi.id); const neo = newMap.get(oi.id);
+                if (!old || !neo) return;
+                const dx = old.x - neo.x; const dy = old.y - neo.y;
+                if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) offsets.push([oi.id, dx, dy]);
+              });
+              if (offsets.length > 0) scheduleBounceIn(offsets);
+            }, 100);
+          });
+        });
+      };
+      // 🧠 手记不为空且首次提醒
+      const hasMemory = !!(item.memoryText || (item.mediaUris && item.mediaUris !== '[]' && item.mediaUris !== ''));
+      if (hasMemory && !memoryWarnedRef.current) {
+        memoryWarnedRef.current = true;
+        Alert.alert('手记提醒', `「${item.title}」包含手记内容，删除后手记将一并丢失。确定删除吗？`, [
+          { text: '取消', style: 'cancel' },
+          { text: '仍然删除', style: 'destructive', onPress: doDelete },
+        ]);
+        return;
+      }
       Alert.alert('删除', `确定删除「${item.title}」？`, [
         { text: '取消', style: 'cancel' },
-        { text: '删除', style: 'destructive', onPress: () => {
-          setDeletingCapsuleId(item.id);
-          capsuleDelScale.setValue(1); capsuleDelOpacity.setValue(1);
-          Animated.parallel([
-            Animated.spring(capsuleDelScale, { toValue: 0.6, friction: 7, tension: 40, useNativeDriver: true }),
-            Animated.timing(capsuleDelOpacity, { toValue: 0, duration: 280, useNativeDriver: true }),
-          ]).start(() => {
-            const oldMap = new Map(layoutMapRef.current);
-            const oldItemsArr = itemsRef.current;
-            setItems(prev => prev.filter(i => i.id !== item.id));
-            setDeletingCapsuleId(null);
-            deleteItem(item.id, listId);
-            InteractionManager.runAfterInteractions(() => {
-              setTimeout(() => {
-                const offsets: [string, number, number][] = [];
-                const newMap = layoutMapRef.current;
-                oldItemsArr.forEach(oi => {
-                  if (oi.id === item.id) return;
-                  const old = oldMap.get(oi.id); const neo = newMap.get(oi.id);
-                  if (!old || !neo) return;
-                  const dx = old.x - neo.x; const dy = old.y - neo.y;
-                  if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) offsets.push([oi.id, dx, dy]);
-                });
-                if (offsets.length > 0) scheduleBounceIn(offsets);
-              }, 100);
-            });
-          });
-        } },
+        { text: '删除', style: 'destructive', onPress: doDelete },
       ]);
     }
   }, [items, listId, stopGlow, jellyScale, scheduleBounceIn]);
@@ -376,7 +392,9 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
     batchCacheRef.current = { type: 'complete', ids, prevItems };
     setBatchUndoLabel(`已标记完成 ${ids.length} 项`);
     if (batchUndoTimer.current) clearTimeout(batchUndoTimer.current);
-    batchUndoTimer.current = setTimeout(() => { executeBatchInDB('complete', ids); batchCacheRef.current = null; }, 5000);
+    batchUndoTimer.current = setTimeout(() => { executeBatchInDB('complete', ids); batchCacheRef.current = null; setBatchUndoLabel(''); }, 5000);
+    batchUndoSlide.setValue(-80); batchUndoFade.setValue(0);
+    Animated.parallel([Animated.spring(batchUndoSlide, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }), Animated.timing(batchUndoFade, { toValue: 1, duration: 250, useNativeDriver: true })]).start();
   }, [selectedIds, executeBatchInDB]);
 
   const batchDelete = useCallback(() => {
@@ -387,7 +405,9 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
     batchCacheRef.current = { type: 'delete', ids, prevItems };
     setBatchUndoLabel(`已删除 ${ids.length} 项`);
     if (batchUndoTimer.current) clearTimeout(batchUndoTimer.current);
-    batchUndoTimer.current = setTimeout(() => { executeBatchInDB('delete', ids); batchCacheRef.current = null; }, 5000);
+    batchUndoTimer.current = setTimeout(() => { executeBatchInDB('delete', ids); batchCacheRef.current = null; setBatchUndoLabel(''); }, 5000);
+    batchUndoSlide.setValue(-80); batchUndoFade.setValue(0);
+    Animated.parallel([Animated.spring(batchUndoSlide, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }), Animated.timing(batchUndoFade, { toValue: 1, duration: 250, useNativeDriver: true })]).start();
   }, [selectedIds, executeBatchInDB]);
 
   const handleBatchUndo = useCallback(() => {
@@ -502,6 +522,7 @@ export default function ListDetailScreen({ listId, onBack }: Props) {
 
       {highlightIndex !== null && dragActive.current && (<Animated.View style={[st.dropGlow, { position: 'absolute', left: dropLeft, top: dropTop, width: dropW, height: dropH, opacity: 0.85, backgroundColor: dragItemColor.current, shadowColor: dragItemColor.current }]} pointerEvents="none" />)}
       {undoItems && (<Animated.View style={[st.undoFloater, { transform: [{ translateY: undoSlideAnim }], opacity: undoFadeAnim }]} pointerEvents="box-none"><BlurView intensity={85} tint="light" style={st.undoFloaterInner}><Text style={st.undoText}>已重新排序</Text><TouchableOpacity onPress={() => { if (!undoItems) return; doJellySpring(); setItems(undoItems); if (undoTimer.current) clearTimeout(undoTimer.current); setUndoItems(null); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity><TouchableOpacity onPress={() => { if (undoTimer.current) clearTimeout(undoTimer.current); setUndoItems(null); }} style={st.undoClose}><Text style={st.undoCloseText}>✕</Text></TouchableOpacity></BlurView></Animated.View>)}
+      {batchUndoLabel !== '' && (<Animated.View style={[st.undoFloater, { transform: [{ translateY: batchUndoSlide }], opacity: batchUndoFade }]} pointerEvents="box-none"><BlurView intensity={85} tint="light" style={st.undoFloaterInner}><Text style={st.undoText}>{batchUndoLabel}</Text><TouchableOpacity onPress={handleBatchUndo} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity><TouchableOpacity onPress={() => { if (batchUndoTimer.current) clearTimeout(batchUndoTimer.current); setBatchUndoLabel(''); batchCacheRef.current = null; }} style={st.undoClose}><Text style={st.undoCloseText}>✕</Text></TouchableOpacity></BlurView></Animated.View>)}
       {menuItem && (
         <View style={[st.menuOverlay, { top: scrollTopRef.current + (layoutMapRef.current.get(menuItemId!)?.y ?? 0) + (layoutMapRef.current.get(menuItemId!)?.h ?? 44) - scrollYRef.current + 8 }]} pointerEvents="box-none">
             <BlurView intensity={90} tint="prominent" style={st.menuBox}>

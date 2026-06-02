@@ -1,10 +1,12 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Animated, Dimensions, PanResponder, StyleSheet, View } from 'react-native';
 import ListHomeScreen from './src/screens/ListHomeScreen';
 import ListDetailScreen from './src/screens/ListDetailScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import ShareModal from './src/components/ShareModal';
 import { CardLayout } from './src/screens/ListHomeScreen';
+import { getItemCount, getCompletedCount, getCompletedItemTitles, GoodList } from './src/services/database';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -17,13 +19,18 @@ export default function App() {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const cardLayout = useRef<CardLayout>({ x: 0, y: 0, width: SW, height: 600 });
 
+  const [shareVisible, setShareVisible] = useState(false);
+  const [shareList, setShareList] = useState<GoodList | null>(null);
+  const [shareTotal, setShareTotal] = useState(0);
+  const [shareDone, setShareDone] = useState(0);
+  const [shareCompletedItems, setShareCompletedItems] = useState<string[]>([]);
+
   // 🔧 简化右滑返回：直接平推，去掉卡片折叠的二次动画
   const panResponder = useRef(PanResponder.create({
     onMoveShouldSetPanResponder: (_, g) => g.dx > 15 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
     onPanResponderMove: (_, g) => { if (g.dx > 0) slideAnim.setValue(g.dx); },
     onPanResponderRelease: (_, g) => {
       if (g.dx > SW * 0.3) {
-        // 直接滑出，不重置 slideAnim（避免卸载前闪现）
         Animated.timing(slideAnim, { toValue: SW, duration: 250, useNativeDriver: true }).start(() => {
           setOverlay('none');
           setHomeRefreshKey(k => k + 1);
@@ -38,21 +45,27 @@ export default function App() {
     if (listId) setSelectedListId(listId);
     if (layout) cardLayout.current = layout;
     setOverlay(type);
-    if (type === 'settings') {
-      slideAnim.setValue(SW * 0.15);
-      Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }).start();
-    } else {
-      // 详情页：纯右滑推入，无缩放
-      slideAnim.setValue(SW * 0.15);
-      Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }).start();
-    }
+    slideAnim.setValue(SW * 0.15);
+    Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }).start();
   };
 
-  // 🔧 关闭不经过二次动画，直接平推关闭（不重置值避免闪屏）
   const closeOverlay = () => {
     Animated.timing(slideAnim, { toValue: SW, duration: 250, useNativeDriver: true })
       .start(() => { setOverlay('none'); setHomeRefreshKey(k => k + 1); });
   };
+
+  const handleOpenShare = useCallback(async (list: GoodList) => {
+    const [total, done, items] = await Promise.all([
+      getItemCount(list.id),
+      getCompletedCount(list.id),
+      getCompletedItemTitles(list.id),
+    ]);
+    setShareList(list);
+    setShareTotal(total);
+    setShareDone(done);
+    setShareCompletedItems(items);
+    setShareVisible(true);
+  }, []);
 
   return (
     <View style={s.container}>
@@ -61,6 +74,7 @@ export default function App() {
         refreshKey={homeRefreshKey}
         onSelectList={(id, layout) => openOverlay('detail', id, layout)}
         onGoSettings={() => openOverlay('settings', undefined, undefined)}
+        onShareList={handleOpenShare}
       />
 
       {overlay === 'detail' && (
@@ -74,6 +88,15 @@ export default function App() {
           <SettingsScreen onBack={closeOverlay} />
         </Animated.View>
       )}
+
+      <ShareModal
+        visible={shareVisible}
+        list={shareList}
+        totalCount={shareTotal}
+        doneCount={shareDone}
+        completedItems={shareCompletedItems}
+        onClose={() => setShareVisible(false)}
+      />
     </View>
   );
 }

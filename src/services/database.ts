@@ -87,3 +87,12 @@ export async function importData(lists: GoodList[], items: GoodItem[]) {
   for (const i of items) await d.runAsync('INSERT INTO good_items (id, listId, title, status, completedAt, memoryText, mediaUris) VALUES (?, ?, ?, ?, ?, ?, ?)', [i.id, i.listId, i.title, i.status, i.completedAt, i.memoryText, i.mediaUris]);
 }
 export async function closeDatabase() { if (db) { await db.closeAsync(); db = null; } }
+
+/** 获取已完成条目标题列表，用于分享卡片展示 */
+export async function getCompletedItemTitles(listId: string): Promise<string[]> {
+  const rows = await getDB().getAllAsync<{ title: string }>(
+    'SELECT title FROM good_items WHERE listId = ? AND status = ? ORDER BY completedAt DESC',
+    [listId, 'completed']
+  );
+  return rows.map(r => r.title);
+}
