@@ -15,6 +15,9 @@ import {
 import * as Haptics from 'expo-haptics';
 import { GoodItem, updateItemMemory } from '../services/database';
 import { pickFromGallery, takePhoto, deleteMediaFile } from '../services/imageStorage';
+import { pushMemory } from '../services/couple';
+import { getCurrentUserId } from '../services/auth';
+import { getCouplePartner } from '../services/couple';
 
 interface MemoryModalProps {
   visible: boolean;
@@ -69,7 +72,19 @@ export default function MemoryModal({ visible, item, onClose, onSaved }: MemoryM
     if (isSaving) return;
     setIsSaving(true);
     try {
-      await updateItemMemory(item.id, item.listId, memoryText, JSON.stringify(mediaUris));
+      const mediaStr = JSON.stringify(mediaUris);
+      await updateItemMemory(item.id, item.listId, memoryText, mediaStr);
+      // Push to shared memory wall if partnered
+      try {
+        const uid = await getCurrentUserId();
+        if (uid) {
+          const partner = await getCouplePartner(uid);
+          if (partner) {
+            const mid = `mem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            pushMemory(mid, item.listId, item.id, uid, memoryText, mediaStr).catch(() => {});
+          }
+        }
+      } catch {}
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
       requestAnimationFrame(() => onSaved());
@@ -125,7 +140,6 @@ export default function MemoryModal({ visible, item, onClose, onSaved }: MemoryM
         style={ms.root}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* 顶部栏（半透明毛玻璃） */}
         <View style={ms.header}>
           <TouchableOpacity onPress={onClose}>
             <Text style={ms.cancelText}>取消</Text>

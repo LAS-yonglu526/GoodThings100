@@ -20,6 +20,7 @@ import {
   initDatabase,
   getAllLists,
   createList,
+  createSharedList,
   deleteList,
   bulkInsertItems,
   getItemCount,
@@ -31,7 +32,6 @@ import { TEMPLATES, TEMPLATE_LIST } from '../services/templates';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
-// 浮动小球数据
 const ORBS = [
   { size: 180, color: '#FFB3BA', startX: 0.1, startY: 0.05, durX: 25000, durY: 32000 },
   { size: 140, color: '#BAE1FF', startX: 0.85, startY: 0.55, durX: 30000, durY: 27000 },
@@ -39,11 +39,9 @@ const ORBS = [
   { size: 120, color: '#FFD6A5', startX: 0.2, startY: 0.7, durX: 32000, durY: 24000 },
 ];
 
-/** 单个浮动球 */
 function FloatingOrb({ size, color, startX, startY, durX, durY }: typeof ORBS[number]) {
   const posX = useRef(new Animated.Value(startX * SW)).current;
   const posY = useRef(new Animated.Value(startY * SH)).current;
-
   useEffect(() => {
     const loopX = () => {
       const toVal = (Math.random() * 0.7 + 0.15) * SW;
@@ -56,19 +54,8 @@ function FloatingOrb({ size, color, startX, startY, durX, durY }: typeof ORBS[nu
     loopX();
     loopY();
   }, []);
-
   return (
-    <Animated.View
-      style={{
-        position: 'absolute',
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: color,
-        opacity: 0.45,
-        transform: [{ translateX: posX }, { translateY: posY }],
-      }}
-    />
+    <Animated.View style={{ position: 'absolute', width: size, height: size, borderRadius: size / 2, backgroundColor: color, opacity: 0.45, transform: [{ translateX: posX }, { translateY: posY }] }} />
   );
 }
 
@@ -76,12 +63,15 @@ export interface CardLayout { x: number; y: number; width: number; height: numbe
 
 interface Props {
   refreshKey: number;
-  onSelectList: (listId: string, cardLayout: CardLayout) => void;
+  onSelectList: (listId: string, cardLayout: CardLayout, isShared?: boolean) => void;
   onGoSettings: () => void;
   onShareList?: (list: GoodList) => void;
+  partnerSharedLists?: GoodList[];
+  partnerUid?: string | null;
+  onOpenTimeline?: (listId: string, title: string, icon: string) => void;
 }
 
-export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings, onShareList }: Props) {
+export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings, onShareList, partnerSharedLists, partnerUid, onOpenTimeline }: Props) {
   const [lists, setLists] = useState<GoodList[]>([]);
   const [loading, setLoading] = useState(true);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
@@ -109,10 +99,17 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
       counts[l.id] = await getItemCount(l.id);
       doneCounts[l.id] = await getCompletedCount(l.id);
     }
+    // Also count partner shared lists
+    if (partnerSharedLists) {
+      for (const pl of partnerSharedLists) {
+        counts[pl.id] = await getItemCount(pl.id);
+        doneCounts[pl.id] = await getCompletedCount(pl.id);
+      }
+    }
     setItemCounts(counts);
     setCompletedCounts(doneCounts);
     setLoading(false);
-  }, []);
+  }, [partnerSharedLists]);
 
   useEffect(() => {
     initDatabase().then(() => loadLists());
@@ -137,7 +134,6 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
     Alert.alert('删除清单', `确定要删除「${item.title}」吗？`, [
       { text: '取消', style: 'cancel' },
       { text: '删除', style: 'destructive', onPress: () => {
-        // 阶段1: 被删卡片果冻缩小淡出 (300ms)
         setDeletingId(item.id);
         deletingScale.setValue(1);
         deletingOpacity.setValue(1);
@@ -145,7 +141,6 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
           Animated.spring(deletingScale, { toValue: 0.6, friction: 7, tension: 40, useNativeDriver: true }),
           Animated.timing(deletingOpacity, { toValue: 0, duration: 280, useNativeDriver: true }),
         ]).start(() => {
-          // 阶段2: 其余卡片慢慢Q弹补位 (LayoutAnimation spring 约500ms)
           LayoutAnimation.configureNext(
             LayoutAnimation.create(600, LayoutAnimation.Types.spring, LayoutAnimation.Properties.scaleXY),
           );
@@ -181,31 +176,78 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
     );
   }
 
+  const allLists = [...lists];
+  if (partnerSharedLists) {
+    for (const pl of partnerSharedLists) {
+      if (!allLists.find(l => l.id === pl.id)) {
+        allLists.push(pl);
+      }
+    }
+  }
+
   return (
     <View style={s.root}>
-      {/* 浮动小球背景 */}
       {ORBS.map((orb, i) => (
         <FloatingOrb key={i} {...orb} />
       ))}
 
       <View style={s.safeArea}>
-        {/* 顶栏（毛玻璃） */}
         <BlurView intensity={60} tint="light" style={s.header}>
           <Text style={s.headerGreeting}>
-            {lists.length === 0 ? '创建你的第一个清单 ✨' : `${lists.length} 个清单`}
+            {allLists.length === 0 ? '创建你的第一个清单 ✨' : `${allLists.length} 个清单`}
           </Text>
           <TouchableOpacity style={s.settingsBtn} onPress={onGoSettings}>
             <Text style={s.settingsIcon}>⚙️</Text>
           </TouchableOpacity>
         </BlurView>
 
-        {/* 可滚动网格 */}
         <ScrollView
           style={s.scrollArea}
           contentContainerStyle={s.gridScrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {lists.length === 0 ? (
+          {/* 伴侣共享清单区 */}
+          {partnerUid && partnerSharedLists && partnerSharedLists.length > 0 && (
+            <View style={s.partnerSection}>
+              <Text style={s.partnerSectionTitle}>💕 Ta 的共享清单</Text>
+              <View style={s.gridContainer}>
+                {partnerSharedLists.map((item) => {
+                  const total = itemCounts[item.id] || 0;
+                  const done = completedCounts[item.id] || 0;
+                  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                  const layout = cardLayouts.current[item.id] || { x: 16, y: 140, width: SW * 0.42, height: 145 };
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[s.card, { backgroundColor: item.coverColor + '88', borderColor: '#E8A0BF88', borderWidth: 2 }]}
+                      activeOpacity={0.7}
+                      onLayout={(e) => {
+                        const { x, y, width, height } = e.nativeEvent.layout;
+                        cardLayouts.current[item.id] = { x: 16 + x, y: 120 + y, width, height };
+                      }}
+                      onPress={() => onSelectList(item.id, layout, true)}
+                      onLongPress={() => {
+                        if (onOpenTimeline) {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                          onOpenTimeline(item.id, item.title, item.iconEmoji);
+                        }
+                      }}
+                    >
+                      <View style={s.partnerBadge}><Text style={s.partnerBadgeText}>👫</Text></View>
+                      <Text style={s.cardIcon}>{item.iconEmoji}</Text>
+                      <Text style={s.cardTitle} numberOfLines={2}>{item.title}</Text>
+                      <View style={s.cardProgressBar}>
+                        <View style={[s.cardProgressFill, { width: `${Math.min(pct, 100)}%`, backgroundColor: '#E8A0BF' }]} />
+                      </View>
+                      <Text style={s.cardCount}>{done}/{total} · {pct}%</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {allLists.length === 0 && (!partnerSharedLists || partnerSharedLists.length === 0) ? (
             <View style={s.empty}>
               <Text style={s.emptyEmoji}>📋</Text>
               <Text style={s.emptyText}>还没有清单</Text>
@@ -226,7 +268,7 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
                       const { x, y, width, height } = e.nativeEvent.layout;
                       cardLayouts.current[item.id] = { x: 16 + x, y: 120 + y, width, height };
                     }}
-                    onPress={() => onSelectList(item.id, layout)}
+                    onPress={() => onSelectList(item.id, layout, !!item.isShared)}
                     onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setMenuListId(item.id); }}
                   >
                     {deletingId === item.id ? (
@@ -240,6 +282,7 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
                       </Animated.View>
                     ) : (
                       <>
+                        {item.isShared ? <View style={s.sharedTag}><Text style={s.sharedTagText}>共享</Text></View> : null}
                         <Text style={s.cardIcon}>{item.iconEmoji}</Text>
                         <Text style={s.cardTitle} numberOfLines={2}>{item.title}</Text>
                         <View style={s.cardProgressBar}>
@@ -255,7 +298,6 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
           )}
         </ScrollView>
 
-        {/* 长按菜单 */}
         {menuListId && (() => {
           const menuItem = lists.find(l => l.id === menuListId);
           if (!menuItem) { setMenuListId(null); return null; }
@@ -284,13 +326,11 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
           );
         })()}
 
-        {/* FAB */}
         <TouchableOpacity style={s.fab} onPress={() => setShowCreate(true)}>
           <Text style={s.fabText}>+</Text>
         </TouchableOpacity>
       </View>
 
-      {/* 编辑名称弹窗 */}
       <Modal visible={showEditTitle} animationType="fade" transparent>
         <TouchableOpacity style={s.menuBackdrop} activeOpacity={1} onPress={() => setShowEditTitle(false)}>
           <View style={s.menuCard}>
@@ -308,7 +348,6 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
         </TouchableOpacity>
       </Modal>
 
-      {/* 新建弹窗 */}
       <Modal visible={showCreate} animationType="slide" transparent>
         <View style={s.modalOverlay}>
           <View style={s.modalContent}>
@@ -360,6 +399,8 @@ const s = StyleSheet.create({
   settingsIcon: { fontSize: 20 },
   scrollArea: { flex: 1 },
   gridScrollContent: { paddingHorizontal: 12, paddingBottom: 100, paddingTop: 4 },
+  partnerSection: { marginBottom: 8 },
+  partnerSectionTitle: { fontSize: 13, fontWeight: '600', color: '#E8A0BF', marginBottom: 8, marginLeft: 4, letterSpacing: 1 },
   empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 120, gap: 8 },
   emptyEmoji: { fontSize: 48 },
   emptyText: { fontSize: 18, fontWeight: '600', color: '#636E72' },
@@ -375,6 +416,10 @@ const s = StyleSheet.create({
   cardProgressBar: { height: 3, backgroundColor: 'rgba(45,52,54,0.08)', borderRadius: 1.5, marginTop: 8, overflow: 'hidden' },
   cardProgressFill: { height: '100%', backgroundColor: 'rgba(45,52,54,0.4)', borderRadius: 1.5 },
   cardCount: { fontSize: 12, color: '#7A8A9E', marginTop: 4, fontWeight: '600' },
+  partnerBadge: { position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFE0E5', alignItems: 'center', justifyContent: 'center' },
+  partnerBadgeText: { fontSize: 12 },
+  sharedTag: { position: 'absolute', top: 10, right: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, backgroundColor: '#E8A0BF88' },
+  sharedTagText: { fontSize: 10, fontWeight: '700', color: '#FFF' },
   fab: {
     position: 'absolute', bottom: 30, right: 24, width: 60, height: 60, borderRadius: 30,
     backgroundColor: '#2D3436', alignItems: 'center', justifyContent: 'center',

@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as ImagePicker from 'expo-image-picker';
+import * as ImagePicker from 'expo-image-picker'
+import * as ImageManipulator from 'expo-image-manipulator';
 
 const MEDIA_DIR = `${FileSystem.documentDirectory}media/`;
 
@@ -80,4 +81,32 @@ export async function deleteMediaFile(uri: string): Promise<void> {
   if (fileInfo.exists) {
     await FileSystem.deleteAsync(uri, { idempotent: true });
   }
+}
+/**
+ * 选择并压缩头像 (120×120)
+ */
+export async function pickAndCompressAvatar(): Promise<string | null> {
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permission.granted) {
+    throw new Error('需要相册访问权限');
+  }
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.5,
+  });
+  if (result.canceled || !result.assets?.[0]?.uri) return null;
+  // 压缩到 150×150
+  const manipResult = await ImageManipulator.manipulateAsync(
+    result.assets[0].uri,
+    [{ resize: { width: 150, height: 150 } }],
+    { compress: 0.4, format: ImageManipulator.SaveFormat.JPEG }
+  );
+  // 复制到本地存储
+  await ensureMediaDirectory();
+  const fileName = `avatar_${Date.now()}.jpg`;
+  const destPath = `${MEDIA_DIR}${fileName}`;
+  await FileSystem.copyAsync({ from: manipResult.uri, to: destPath });
+  return destPath;
 }
