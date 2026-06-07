@@ -49,6 +49,7 @@ export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, 
   const [text, setText] = useState('');
   const [isSuggested, setIsSuggested] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
+  const [successAnim] = useState(() => new Animated.Value(0));
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(100)).current;
   const inputRef = useRef<TextInput>(null);
@@ -77,20 +78,29 @@ export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, 
 
   if (!visible) return null;
 
+  const triggerSuccess = () => {
+    Animated.sequence([
+      Animated.timing(successAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.delay(1500),
+      Animated.timing(successAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start();
+  };
+
   const handleSubmit = () => {
     const val = text.trim();
-    if (!val) return;
+    if (!val) { onClose(); return; }
     const isDup = existingItems.some(i => i.trim() === val);
     if (isDup) {
       Alert.alert('重复提醒', `「${val}」已存在于本列表中，确定仍然添加？`, [
         { text: '取消', style: 'cancel' },
-        { text: '仍然添加', onPress: () => { onAdd(val); setText(''); setIsSuggested(false); } },
+        { text: '仍然添加', onPress: () => { onAdd(val); setText(''); setIsSuggested(false); triggerSuccess(); } },
       ]);
       return;
     }
     onAdd(val);
     setText('');
     setIsSuggested(false);
+    triggerSuccess();
   };
 
   const handleSuggest = () => {
@@ -123,6 +133,10 @@ export default function AddItemOverlay({ visible, onAdd, onClose, currentCount, 
             maxLength={50}
             autoFocus
           />
+          {/* Success toast */}
+          <Animated.View style={[s.successToast, { opacity: successAnim, transform: [{ translateY: successAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }]} pointerEvents="none">
+            <Text style={s.successText}>✓ 已添加</Text>
+          </Animated.View>
           <View style={s.footer}>
             <TouchableOpacity style={s.suggestBtn} onPress={handleSuggest}>
               <Text style={s.suggestBtnText}>✨ 建议生成</Text>
@@ -151,6 +165,7 @@ const s = StyleSheet.create({
     left: 16,
     right: 16,
     bottom: 20,
+    overflow: 'hidden',
   },
   panelInner: {
     backgroundColor: 'rgba(255,255,255,0.9)',
@@ -203,6 +218,8 @@ const s = StyleSheet.create({
     color: '#E67E22',
     backgroundColor: '#FFF3E0',
   },
+  successToast: { alignItems: 'center', marginBottom: 8 },
+  successText: { fontSize: 13, fontWeight: '700', color: '#7BC67E' },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',

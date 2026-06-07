@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -18,9 +18,10 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import {
   sendEmailOTP, verifyEmailOTP, signOut, getCurrentUserId, backupToCloud, restoreFromCloud,
-  signInWithPassword, setPasswordForUser,
+  signInWithPassword, setPasswordForUser, quickSignIn,
   getSavedAccounts, removeSavedAccount, SavedAccount,
   syncProfile, loadProfile, UserProfile,
+  restoreSession, saveSessionToken,
 } from '../services/auth';
 import { exportAllData, importData } from '../services/database';
 import { getCoupleStatus, createInvite, claimInvite, unbindCouple } from '../services/couple';
@@ -50,7 +51,7 @@ export default function SettingsScreen({ onBack }: Props) {
   const [showEditNickname, setShowEditNickname] = useState(false);
   const [editNickname, setEditNickname] = useState('');
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
-  const passwordPromptedRef = React.useRef(false);
+  const passwordPromptedRef = useRef(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
@@ -65,18 +66,6 @@ export default function SettingsScreen({ onBack }: Props) {
     try {
       const val = await SecureStore.getItemAsync('gt100_biometrics');
       setUseBiometrics(val === 'true');
-    } catch {}
-  };
-
-  const saveSessionToken = async (uid: string) => {
-    try {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        await SecureStore.setItemAsync(`gt100_session_${uid}`, JSON.stringify({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-        }));
-      }
     } catch {}
   };
 
@@ -100,16 +89,30 @@ export default function SettingsScreen({ onBack }: Props) {
     } catch (err: any) { Alert.alert('上传失败', err.message || '请重试'); }
   };
 
+  // ⚡ 修复1：refreshState 在 else 分支不重置 hasPasswordLocal
+  // ⚡ 修复2：App 通过 refreshKey 触发刷新，覆盖挂载只读一次的问题
   const refreshState = () => {
     getCurrentUserId().then(async (uid) => {
       setUserId(uid);
       if (uid) {
-        const p = await loadProfile(); setProfile(p);
-        if (p?.hasPassword) setHasPasswordLocal(true);
+        let hasPwLocal = false;
+        try {
+          const localPw = await SecureStore.getItemAsync(`gt100_has_pw_${uid}`);
+          if (localPw === 'true') hasPwLocal = true;
+        } catch {}
+        const p = await loadProfile();
+        setProfile(p);
+        const hasPw = hasPwLocal || (p?.hasPassword === true);
+        setHasPasswordLocal(hasPw);
+        if (p?.hasPassword && !hasPwLocal) {
+          await SecureStore.setItemAsync(`gt100_has_pw_${uid}`, 'true').catch(() => {});
+        }
         getCoupleStatus(uid).then(s => { setPartnered(s.partnered); setPartnerUid(s.partnerUid); });
         getSavedAccounts().then(setSavedAccounts);
       } else {
-        setProfile(null); setPartnered(false); setPartnerUid(null); getSavedAccounts().then(setSavedAccounts);
+        // 未登录时不重置密码状态——可能是 updateUser 刷新 session 的中间状态
+        setProfile(null); setPartnered(false); setPartnerUid(null);
+        getSavedAccounts().then(setSavedAccounts);
       }
     });
   };
@@ -117,23 +120,8 @@ export default function SettingsScreen({ onBack }: Props) {
   useEffect(() => {
     refreshState();
     initBiometrics();
-    // Face ID 自动登录
-    SecureStore.getItemAsync('gt100_biometrics').then(async (val) => {
-      if (val !== 'true') return;
-      const uid = await getCurrentUserId();
-      if (uid) return;
-      const result = await LocalAuthentication.authenticateAsync({ promptMessage: '验证身份以登录', fallbackLabel: '使用密码' });
-      if (!result.success) return;
-      const accounts = await getSavedAccounts();
-      if (accounts.length === 0) return;
-      const { error } = await sendEmailOTP(accounts[0].email);
-      if (!error) {
-        setEmail(accounts[0].email); setStep('otp'); setLoginMode('email_otp'); setShowLogin(true);
-      }
-    }).catch(() => {});
   }, []);
 
-  // OTP
   const handleSendOTP = async () => {
     if (!email.trim() || !email.includes('@')) { Alert.alert('请输入有效邮箱'); return; }
     setBusy(true); const { error } = await sendEmailOTP(email.trim()); setBusy(false);
@@ -145,25 +133,27 @@ export default function SettingsScreen({ onBack }: Props) {
     if (!otp.trim()) { Alert.alert('请输入验证码'); return; }
     setBusy(true); const { error } = await verifyEmailOTP(email.trim(), otp.trim()); setBusy(false);
     if (error) { Alert.alert('验证失败', error); return; }
+    const uid = await getCurrentUserId();
+    if (uid) await saveSessionToken(uid).catch(() => {});
     const p = await loadProfile(); setProfile(p); setShowLogin(false);
     if (otpForReset) { setOtpForReset(false); setLoginMode('register_set_password'); return; }
-    // 检查 hasPassword：先查本地缓存，再查 Supabase auth
-    // 更可靠的方式：直接用 supabase 查 profiles
-    // 强制检查：SecureStore 本地标记 > profiles 表 > 缓存
-    const uid = await getCurrentUserId();
-    let hasPw = hasPasswordLocal;
+    let hasPw = false;
     try {
       const localPw = await SecureStore.getItemAsync(`gt100_has_pw_${uid}`);
-      if (localPw === "true") hasPw = true;
+      if (localPw === 'true') hasPw = true;
     } catch {}
     if (!hasPw && p?.hasPassword) hasPw = true;
-    if (!hasPw) {
+    if (!hasPw && uid) {
       try {
-        const { data } = await supabase.from("profiles").select("has_password").eq("user_id", uid || "").limit(1);
+        const { data } = await supabase.from('profiles').select('has_password').eq('user_id', uid).limit(1);
         if (data?.[0]?.has_password) hasPw = true;
       } catch {}
     }
-    if (hasPw) { setHasPasswordLocal(true); SecureStore.setItemAsync(`gt100_has_pw_${uid}`, "true").catch(()=>{}); refreshState(); return; }
+    if (hasPw) {
+      setHasPasswordLocal(true);
+      if (uid) await SecureStore.setItemAsync(`gt100_has_pw_${uid}`, 'true').catch(() => {});
+      refreshState(); return;
+    }
     if (!passwordPromptedRef.current) {
       passwordPromptedRef.current = true;
       setTimeout(() => Alert.alert('🔐 设置密码', '可以设置密码和用户名', [
@@ -173,56 +163,75 @@ export default function SettingsScreen({ onBack }: Props) {
     } else { refreshState(); }
   };
 
-  // 密码登录
   const handlePasswordLogin = async () => {
     if (!email.trim() || !password.trim()) { Alert.alert('请输入邮箱和密码'); return; }
     setBusy(true); const { error } = await signInWithPassword(email.trim(), password); setBusy(false);
     if (error) { Alert.alert('登录失败', error, [{ text: '用验证码登录', onPress: () => { setLoginMode('email_otp'); setStep('email'); } }, { text: '取消', style: 'cancel' }]); return; }
-    setShowLogin(false); refreshState();
+    const uid2 = await getCurrentUserId(); if (uid2) await saveSessionToken(uid2); setShowLogin(false); refreshState();
   };
 
-  // 注册
+  const pendingUidRef = useRef<string | null>(null);
+
   const handleRegisterSetPassword = async () => {
     if (!password || password.length < 6) { Alert.alert('密码至少6位'); return; }
     if (password !== passwordConfirm) { Alert.alert('两次密码不一致'); return; }
-    setBusy(true); const { error } = await setPasswordForUser(password); setBusy(false);
+    setBusy(true); const { error, userId: newUid } = await setPasswordForUser(password); setBusy(false);
     if (error) { Alert.alert('设置失败', error); return; }
+    pendingUidRef.current = newUid || null;
     setHasPasswordLocal(true); setLoginMode('register_set_name'); setEditNickname('');
-    SecureStore.setItemAsync(`gt100_has_pw_${await getCurrentUserId()}`, 'true').catch(()=>{});
   };
 
   const handleRegisterSetName = async () => {
     const name = editNickname.trim() || '好事用户';
     if (new TextEncoder().encode(name).length > 36) { Alert.alert('用户名过长', '最多12个中文或24个英文字符'); return; }
-    setBusy(true); await syncProfile(name, '👤', true); setBusy(false);
+    const uid = pendingUidRef.current;
+    setBusy(true);
+    await syncProfile(name, '👤', true, undefined, uid || undefined);
+    setBusy(false);
     setShowLogin(false); Alert.alert('🎉 欢迎！', '账号设置完成，开始记录好事吧'); refreshState();
   };
 
-  // 快捷登录 = 手动选择登录方式
   const handleLoginWithAccount = async (acct: SavedAccount) => {
     setShowLogin(false);
     const sid = await getCurrentUserId();
     if (sid === acct.userId) { refreshState(); return; }
-    // 不同账号 → 让用户选
+    const bioVal = await SecureStore.getItemAsync('gt100_biometrics');
+    if (bioVal === 'true') {
+      try {
+        const result = await LocalAuthentication.authenticateAsync({ promptMessage: '验证身份以登录' });
+        if (result.success) {
+          const { error: qErr, userId: qUid } = await quickSignIn();
+          if (!qErr && qUid) { refreshState(); return; }
+          setEmail(acct.email); setStep('otp'); setLoginMode('email_otp'); setShowLogin(true);
+          const { error: otpErr } = await sendEmailOTP(acct.email);
+          if (!otpErr) return; setStep('email'); Alert.alert('发送失败', '请检查网络后重试'); return;
+        }
+      } catch {}
+      setEmail(acct.email);
+      Alert.alert('验证未通过', `${acct.nickname || acct.email}`, [
+        { text: '验证码登录', onPress: () => { setStep('email'); setLoginMode('email_otp'); setShowLogin(true); } },
+        { text: '密码登录', onPress: () => { setPassword(''); setLoginMode('password_login'); setShowLogin(true); } },
+        { text: '取消', style: 'cancel' },
+      ]);
+      return;
+    }
     setEmail(acct.email);
-    Alert.alert("选择登录方式", `${acct.nickname || acct.email}`, [
-      { text: "验证码登录", onPress: () => { setStep("email"); setLoginMode("email_otp"); setShowLogin(true); } },
-      { text: "密码登录", onPress: () => { setPassword(""); setLoginMode("password_login"); setShowLogin(true); } },
-      { text: "取消", style: "cancel" },
+    Alert.alert('选择登录方式', `${acct.nickname || acct.email}`, [
+      { text: '验证码登录', onPress: () => { setStep('email'); setLoginMode('email_otp'); setShowLogin(true); } },
+      { text: '密码登录', onPress: () => { setPassword(''); setLoginMode('password_login'); setShowLogin(true); } },
+      { text: '取消', style: 'cancel' },
     ]);
   };
 
-  // 修改密码
   const handleChangePassword = async () => {
     if (!newPassword || newPassword.length < 6) { Alert.alert('密码至少6位'); return; }
     if (newPassword !== newPasswordConfirm) { Alert.alert('两次密码不一致'); return; }
     setBusy(true); const { error } = await setPasswordForUser(newPassword); setBusy(false);
     if (error) { Alert.alert('修改失败', error); return; }
     setShowChangePassword(false); setNewPassword(''); setNewPasswordConfirm('');
-    setHasPasswordLocal(true); SecureStore.setItemAsync(`gt100_has_pw_${await getCurrentUserId()}`, 'true').catch(()=>{}); Alert.alert('密码已更新'); refreshState();
+    setHasPasswordLocal(true); Alert.alert('密码已更新'); refreshState();
   };
 
-  // 用户名
   const handleSaveNickname = async () => {
     const name = editNickname.trim(); if (!name) { Alert.alert('请输入用户名'); return; }
     if (new TextEncoder().encode(name).length > 36) { Alert.alert('用户名过长', '最多12个中文或24个英文字符'); return; }
@@ -230,23 +239,12 @@ export default function SettingsScreen({ onBack }: Props) {
     setShowEditNickname(false); refreshState();
   };
 
-  // 备份
-  const handleBackup = async () => {
-    setBusy(true); try { const { lists, items } = await exportAllData(); const { error } = await backupToCloud(lists, items); if (error) throw new Error(error); Alert.alert('备份成功'); } catch (e: any) { Alert.alert('备份失败', e.message); } setBusy(false);
-  };
+  const handleBackup = async () => { setBusy(true); try { const { lists, items } = await exportAllData(); const { error } = await backupToCloud(lists, items); if (error) throw new Error(error); Alert.alert('备份成功'); } catch (e: any) { Alert.alert('备份失败', e.message); } setBusy(false); };
   const handleRestore = () => Alert.alert('恢复数据', '将从云端恢复数据。确定继续？', [{ text: '取消', style: 'cancel' }, { text: '确定恢复', style: 'destructive', onPress: async () => { setBusy(true); try { const r = await restoreFromCloud(); if (r.error) throw new Error(r.error); if (r.lists.length === 0) { Alert.alert('提示', '云端暂无备份数据'); setBusy(false); return; } await importData(r.lists, r.items); Alert.alert('恢复成功'); } catch (e: any) { Alert.alert('恢复失败', e.message); } setBusy(false); }}]);
   const handleLogout = () => Alert.alert('退出登录', '确定要退出吗？', [{ text: '取消', style: 'cancel' }, { text: '退出', style: 'destructive', onPress: async () => { await signOut(); refreshState(); }}]);
 
-  // 伴侣
-  const handleCreateInvite = async () => {
-    if (!userId) { Alert.alert('请先登录'); return; } setBusy(true); const { code, error } = await createInvite(userId); setBusy(false);
-    if (error) { Alert.alert('生成失败', error); return; } setInviteCode(code || ''); setShowInvitePanel(true);
-  };
-  const handleClaimInvite = async () => {
-    if (!userId) { Alert.alert('请先登录'); return; } if (!claimCode.trim()) { Alert.alert('请输入邀请码'); return; }
-    setBusy(true); const { error, partnerUid: pUid } = await claimInvite(userId, claimCode.trim()); setBusy(false);
-    if (error) { Alert.alert('绑定失败', error); return; } setPartnered(true); setPartnerUid(pUid || null); setClaimCode(''); Alert.alert('绑定成功', '你们已经连在一起啦 💕');
-  };
+  const handleCreateInvite = async () => { if (!userId) { Alert.alert('请先登录'); return; } setBusy(true); const { code, error } = await createInvite(userId); setBusy(false); if (error) { Alert.alert('生成失败', error); return; } setInviteCode(code || ''); setShowInvitePanel(true); };
+  const handleClaimInvite = async () => { if (!userId) { Alert.alert('请先登录'); return; } if (!claimCode.trim()) { Alert.alert('请输入邀请码'); return; } setBusy(true); const { error, partnerUid: pUid } = await claimInvite(userId, claimCode.trim()); setBusy(false); if (error) { Alert.alert('绑定失败', error); return; } setPartnered(true); setPartnerUid(pUid || null); setClaimCode(''); Alert.alert('绑定成功', '你们已经连在一起啦 💕'); };
   const handleUnbind = () => Alert.alert('解除绑定', '确定要解除和伴侣的绑定吗？', [{ text: '取消', style: 'cancel' }, { text: '解除', style: 'destructive', onPress: async () => { if (!userId) return; setBusy(true); const { error } = await unbindCouple(userId); setBusy(false); if (error) { Alert.alert('失败', error); return; } setPartnered(false); setPartnerUid(null); Alert.alert('已解除'); }}]);
   const handleAppleSignIn = () => Alert.alert('🍎 敬请期待', 'Apple 登录底层逻辑已就绪，将在正式部署上架后解锁~');
 
@@ -274,9 +272,9 @@ export default function SettingsScreen({ onBack }: Props) {
                 </View>
                 <View style={ss.securityBox}>
                   <View style={ss.securityRow}><Text style={ss.securityIcon}>📧</Text><Text style={ss.securityLabel}>邮箱已验证</Text><Text style={ss.securityOk}>✅</Text></View>
-<View style={ss.securityRow}>
+                  <View style={ss.securityRow}>
                     <Text style={ss.securityIcon}>🔐</Text><Text style={ss.securityLabel}>密码保护</Text>
-                    {(hasPasswordLocal || profile?.hasPassword) ? (
+                    {hasPasswordLocal ? (
                       <TouchableOpacity onPress={() => { setNewPassword(''); setNewPasswordConfirm(''); setShowChangePassword(true); }}><Text style={ss.securityOk}>✅ 修改</Text></TouchableOpacity>
                     ) : (
                       <TouchableOpacity onPress={() => Alert.alert('设置密码', '设置密码后可用邮箱+密码登录', [{ text: '稍后', style: 'cancel' }, { text: '设置', onPress: () => { setPassword(''); setPasswordConfirm(''); setLoginMode('register_set_password'); setShowLogin(true); }}])}><Text style={ss.securityWarn}>⚠️ 点击添加</Text></TouchableOpacity>
@@ -292,15 +290,8 @@ export default function SettingsScreen({ onBack }: Props) {
               </View>
             ) : (
               <View style={ss.sectionCard}>
-                <TouchableOpacity style={ss.loginBtn} onPress={() => {
-                  getSavedAccounts().then(accounts => {
-                    if (accounts.length > 0) { setSavedAccounts(accounts); setLoginMode('choose_account'); }
-                    else { setLoginMode('email_otp'); }
-                    setShowLogin(true); setEmail(''); setPassword(''); setPasswordConfirm(''); setOtp(''); setStep('email');
-                  });
-                }}><Text style={ss.loginBtnText}>登录 / 注册</Text><Text style={ss.loginHint}>首次请用验证码登录</Text></TouchableOpacity>
                 {savedAccounts.length > 0 && (
-                  <View style={{ marginTop: 12 }}>
+                  <View style={{ marginBottom: 14 }}>
                     <Text style={ss.smallLabel}>快捷登录（免密）</Text>
                     {savedAccounts.slice(0, 3).map(a => (
                       <TouchableOpacity key={a.userId} style={ss.acctRow} onPress={() => handleLoginWithAccount(a)}>
@@ -309,116 +300,28 @@ export default function SettingsScreen({ onBack }: Props) {
                         <TouchableOpacity onPress={() => Alert.alert('删除账号', '从列表中移除此账号？', [{ text: '取消', style: 'cancel' }, { text: '删除', style: 'destructive', onPress: () => { removeSavedAccount(a.userId); setSavedAccounts(s => s.filter(x => x.userId !== a.userId)); }}])} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Text style={ss.acctDel}>🗑</Text></TouchableOpacity>
                       </TouchableOpacity>
                     ))}
+                    <View style={{ height: 1, backgroundColor: 'rgba(45,52,54,0.08)', marginVertical: 12 }} />
                   </View>
                 )}
+                <TouchableOpacity style={ss.loginBtn} onPress={() => { setLoginMode('email_otp'); setShowLogin(true); setEmail(''); setPassword(''); setPasswordConfirm(''); setOtp(''); setStep('email'); }}><Text style={ss.loginBtnText}>登录 / 注册</Text><Text style={ss.loginHint}>首次请用验证码登录</Text></TouchableOpacity>
               </View>
             )}
           </View>
-          <View style={{ marginBottom: 20 }}>
-            <Text style={ss.sectionTitle}>伴侣</Text>
-            {!userId ? <View style={ss.hintCard}><Text style={ss.hintText}>登录后可以绑定伴侣</Text></View>
-            : partnered ? (
-              <View style={ss.row}><View style={ss.userInfo}><Text style={ss.userIcon}>💕</Text><View><Text style={ss.userLabel}>已绑定伴侣</Text></View></View><TouchableOpacity style={ss.logoutBtn} onPress={handleUnbind}><Text style={ss.logoutText}>解除</Text></TouchableOpacity></View>
-            ) : (
-              <View style={ss.coupleActions}>
-                <TouchableOpacity style={[ss.actionBtn, busy && ss.actionBtnDisabled]} onPress={handleCreateInvite} disabled={busy}><Text style={ss.actionBtnText}>🔗 生成邀请码</Text></TouchableOpacity>
-                <View style={ss.appleSep}><View style={ss.appleSepLine} /><Text style={ss.appleSepText}> 或输入邀请码 </Text><View style={ss.appleSepLine} /></View>
-                <View style={ss.inviteRow}>
-                  <TextInput style={ss.claimInput} placeholder="输入邀请码" placeholderTextColor="#B2BEC3" value={claimCode} onChangeText={setClaimCode} autoCapitalize="none" autoCorrect={false} />
-                  <TouchableOpacity style={[ss.claimBtn, busy && ss.actionBtnDisabled]} onPress={handleClaimInvite} disabled={busy}><Text style={ss.claimBtnText}>绑定</Text></TouchableOpacity>
-                </View>
-              </View>
-            )}
-          </View>
-
-          <View style={{ marginBottom: 20 }}>
-            <Text style={ss.sectionTitle}>安全</Text>
-            <View style={ss.sectionCard}>
-              <View style={ss.securityRow2}>
-                <Text style={ss.securityIcon}>👁️</Text>
-                <Text style={ss.securityLabel}>Face ID 快捷登录</Text>
-                <TouchableOpacity onPress={toggleBiometrics}>
-                  <View style={useBiometrics ? ss.toggleOn : ss.toggleOff}>
-                    <View style={[ss.toggleThumb, useBiometrics && ss.toggleThumbOn]} />
-                  </View>
-                </TouchableOpacity>
-              </View>
-              <Text style={ss.toggleHint}>开启后可用 Face ID 快速登录</Text>
-            </View>
-          </View>
-          <View style={{ marginBottom: 20 }}>
-            <Text style={ss.sectionTitle}>关于</Text>
-            <View style={ss.aboutCard}><Text style={ss.aboutText}>好事100 v1.3</Text><Text style={ss.aboutText}>100件事 · 100种仪式感</Text></View>
-          </View>
+          <View style={{ marginBottom: 20 }}><Text style={ss.sectionTitle}>伴侣</Text>{!userId ? <View style={ss.hintCard}><Text style={ss.hintText}>登录后可以绑定伴侣</Text></View> : partnered ? (<View style={ss.row}><View style={ss.userInfo}><Text style={ss.userIcon}>💕</Text><View><Text style={ss.userLabel}>已绑定伴侣</Text></View></View><TouchableOpacity style={ss.logoutBtn} onPress={handleUnbind}><Text style={ss.logoutText}>解除</Text></TouchableOpacity></View>) : (<View style={ss.coupleActions}><TouchableOpacity style={[ss.actionBtn, busy && ss.actionBtnDisabled]} onPress={handleCreateInvite} disabled={busy}><Text style={ss.actionBtnText}>🔗 生成邀请码</Text></TouchableOpacity><View style={ss.appleSep}><View style={ss.appleSepLine} /><Text style={ss.appleSepText}> 或输入邀请码 </Text><View style={ss.appleSepLine} /></View><View style={ss.inviteRow}><TextInput style={ss.claimInput} placeholder="输入邀请码" placeholderTextColor="#B2BEC3" value={claimCode} onChangeText={setClaimCode} autoCapitalize="none" autoCorrect={false} /><TouchableOpacity style={[ss.claimBtn, busy && ss.actionBtnDisabled]} onPress={handleClaimInvite} disabled={busy}><Text style={ss.claimBtnText}>绑定</Text></TouchableOpacity></View></View>)}</View>
+          <View style={{ marginBottom: 20 }}><Text style={ss.sectionTitle}>安全</Text><View style={ss.sectionCard}><View style={ss.securityRow2}><Text style={ss.securityIcon}>👁️</Text><Text style={ss.securityLabel}>Face ID 快捷登录</Text><TouchableOpacity onPress={toggleBiometrics}><View style={useBiometrics ? ss.toggleOn : ss.toggleOff}><View style={[ss.toggleThumb, useBiometrics && ss.toggleThumbOn]} /></View></TouchableOpacity></View><Text style={ss.toggleHint}>开启后可用 Face ID 快速登录</Text></View></View>
+          <View style={{ marginBottom: 20 }}><Text style={ss.sectionTitle}>关于</Text><View style={ss.aboutCard}><Text style={ss.aboutText}>好事100 v1.3</Text><Text style={ss.aboutText}>100件事 · 100种仪式感</Text></View></View>
         </ScrollView>
       </View>
-
-      {/* 登录面板 */}
-      {showLogin && (
-        <View style={ss.loginOverlay}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <View style={ss.loginModal}>
-              {loginMode === 'choose_account' ? (
-                <>
-                  <Text style={ss.loginTitle}>选择账号</Text>
-                  {savedAccounts.map(a => <TouchableOpacity key={a.userId} style={ss.acctCard} onPress={() => handleLoginWithAccount(a)}><Text style={ss.acctNameBold}>{a.nickname || a.email}</Text><Text style={ss.acctEmailSm}>{a.email}</Text></TouchableOpacity>)}
-                  <TouchableOpacity style={ss.loginActionBtn} onPress={() => { setLoginMode('password_login'); setEmail(''); setPassword(''); setPasswordConfirm(''); }}><Text style={ss.loginActionText}>使用其他账号</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => setShowLogin(false)}><Text style={ss.loginCancel}>取消</Text></TouchableOpacity>
-                </>
-              ) : loginMode === 'email_otp' ? (
-                <>
-                  <Text style={ss.loginTitle}>邮箱验证码</Text>
-                  {step === 'email' ? (
-                    <><TextInput style={ss.loginInput} placeholder="输入邮箱" placeholderTextColor="#B2BEC3" keyboardType="email-address" autoCapitalize="none" autoComplete="email" textContentType="emailAddress" value={email} onChangeText={setEmail} /><TouchableOpacity style={ss.loginActionBtn} onPress={handleSendOTP} disabled={busy}><Text style={ss.loginActionText}>{busy ? '发送中...' : '获取验证码'}</Text></TouchableOpacity></>
-                  ) : (
-                    <><Text style={ss.phoneHint}>已发送至 {email}</Text><TextInput style={ss.loginInput} placeholder="输入验证码" placeholderTextColor="#B2BEC3" keyboardType="number-pad" value={otp} onChangeText={setOtp} maxLength={6} /><TouchableOpacity style={ss.loginActionBtn} onPress={handleVerify} disabled={busy}><Text style={ss.loginActionText}>{busy ? '验证中...' : '验证登录'}</Text></TouchableOpacity></>
-                  )}
-                  <TouchableOpacity onPress={() => { setLoginMode('password_login'); setStep('email'); }}><Text style={ss.backToPhone}>切换到密码登录</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => setShowLogin(false)}><Text style={ss.loginCancel}>取消</Text></TouchableOpacity>
-                </>
-              ) : loginMode === 'register_set_password' ? (
-                <>
-                  <Text style={ss.loginTitle}>设置密码</Text><Text style={ss.phoneHint}>邮箱已验证</Text>
-                  <TextInput style={ss.loginInput} placeholder="密码 (至少6位)" placeholderTextColor="#B2BEC3" secureTextEntry autoCapitalize="none" autoComplete="new-password" textContentType="newPassword" value={password} onChangeText={setPassword} />
-                  <TextInput style={ss.loginInput} placeholder="确认密码" placeholderTextColor="#B2BEC3" secureTextEntry autoCapitalize="none" autoComplete="new-password" textContentType="newPassword" value={passwordConfirm} onChangeText={setPasswordConfirm} />
-                  <TouchableOpacity style={ss.loginActionBtn} onPress={handleRegisterSetPassword} disabled={busy}><Text style={ss.loginActionText}>{busy ? '设置中...' : '下一步'}</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => { setShowLogin(false); refreshState(); }}><Text style={ss.loginCancel}>跳过</Text></TouchableOpacity>
-                </>
-              ) : loginMode === 'register_set_name' ? (
-                <>
-                  <Text style={ss.loginTitle}>设置用户名</Text>
-                  <TextInput style={ss.loginInput} placeholder="你的昵称" placeholderTextColor="#B2BEC3" value={editNickname} onChangeText={setEditNickname} autoFocus returnKeyType="done" onSubmitEditing={handleRegisterSetName} />
-                  <TouchableOpacity style={ss.loginActionBtn} onPress={handleRegisterSetName} disabled={busy}><Text style={ss.loginActionText}>完成</Text></TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <Text style={ss.loginTitle}>登录</Text>
-                  <TextInput style={ss.loginInput} placeholder="邮箱" placeholderTextColor="#B2BEC3" keyboardType="email-address" autoCapitalize="none" autoComplete="email" textContentType="emailAddress" value={email} onChangeText={setEmail} />
-                  <TextInput style={ss.loginInput} placeholder="密码" placeholderTextColor="#B2BEC3" secureTextEntry autoCapitalize="none" autoComplete="password" textContentType="password" value={password} onChangeText={setPassword} />
-                  <TouchableOpacity style={ss.loginActionBtn} onPress={handlePasswordLogin} disabled={busy}><Text style={ss.loginActionText}>{busy ? '登录中...' : '登录'}</Text></TouchableOpacity>
-                  <View style={ss.loginLinks}>
-                    <TouchableOpacity onPress={() => { setLoginMode('email_otp'); setStep('email'); setEmail(''); }}><Text style={ss.backToPhone}>验证码登录</Text></TouchableOpacity>
-                    <TouchableOpacity onPress={() => Alert.alert('忘记密码', '将通过验证码验证身份后重置密码', [{ text: '发送验证码', onPress: () => { setOtpForReset(true); setLoginMode('email_otp'); setStep('email'); } }, { text: '取消', style: 'cancel' }])}><Text style={[ss.backToPhone, { color: '#E8A0BF' }]}>忘记密码</Text></TouchableOpacity>
-                    <TouchableOpacity onPress={() => { setLoginMode("email_otp"); setStep("email"); setEmail(""); setOtp(""); Alert.alert("注册新账号","将通过验证码验证邮箱，然后设置密码和用户名"); }}><Text style={ss.backToPhone}>注册新账号</Text></TouchableOpacity>
-                  </View>
-                  <TouchableOpacity onPress={() => setShowLogin(false)}><Text style={ss.loginCancel}>取消</Text></TouchableOpacity>
-                </>
-              )}
-            </View>
-          </KeyboardAvoidingView>
-        </View>
-      )}
-
-      {/* 邀请码 */}
+      {showLogin && (<View style={ss.loginOverlay}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}><View style={ss.loginModal}>
+        {loginMode === 'choose_account' ? (<><Text style={ss.loginTitle}>选择账号</Text>{savedAccounts.map(a => <TouchableOpacity key={a.userId} style={ss.acctCard} onPress={() => handleLoginWithAccount(a)}><Text style={ss.acctNameBold}>{a.nickname || a.email}</Text><Text style={ss.acctEmailSm}>{a.email}</Text></TouchableOpacity>)}<TouchableOpacity style={ss.loginActionBtn} onPress={() => { setLoginMode('password_login'); setEmail(''); setPassword(''); setPasswordConfirm(''); }}><Text style={ss.loginActionText}>使用其他账号</Text></TouchableOpacity><TouchableOpacity onPress={() => setShowLogin(false)}><Text style={ss.loginCancel}>取消</Text></TouchableOpacity></>)
+        : loginMode === 'email_otp' ? (<><Text style={ss.loginTitle}>邮箱验证码</Text>{step === 'email' ? (<><TextInput style={ss.loginInput} placeholder="输入邮箱" placeholderTextColor="#B2BEC3" keyboardType="email-address" autoCapitalize="none" autoComplete="email" textContentType="emailAddress" value={email} onChangeText={setEmail} /><TouchableOpacity style={ss.loginActionBtn} onPress={handleSendOTP} disabled={busy}><Text style={ss.loginActionText}>{busy ? '发送中...' : '获取验证码'}</Text></TouchableOpacity></>) : (<><Text style={ss.phoneHint}>已发送至 {email}</Text><TextInput style={ss.loginInput} placeholder="输入验证码" placeholderTextColor="#B2BEC3" keyboardType="number-pad" value={otp} onChangeText={setOtp} maxLength={6} /><TouchableOpacity style={ss.loginActionBtn} onPress={handleVerify} disabled={busy}><Text style={ss.loginActionText}>{busy ? '验证中...' : '验证登录'}</Text></TouchableOpacity></>)}<TouchableOpacity onPress={() => { setLoginMode('password_login'); setStep('email'); }}><Text style={ss.backToPhone}>切换到密码登录</Text></TouchableOpacity><TouchableOpacity onPress={() => setShowLogin(false)}><Text style={ss.loginCancel}>取消</Text></TouchableOpacity></>)
+        : loginMode === 'register_set_password' ? (<><Text style={ss.loginTitle}>设置密码</Text><Text style={ss.phoneHint}>邮箱已验证</Text><TextInput style={ss.loginInput} placeholder="密码 (至少6位)" placeholderTextColor="#B2BEC3" secureTextEntry autoCapitalize="none" autoComplete="new-password" textContentType="newPassword" value={password} onChangeText={setPassword} /><TextInput style={ss.loginInput} placeholder="确认密码" placeholderTextColor="#B2BEC3" secureTextEntry autoCapitalize="none" autoComplete="new-password" textContentType="newPassword" value={passwordConfirm} onChangeText={setPasswordConfirm} /><TouchableOpacity style={ss.loginActionBtn} onPress={handleRegisterSetPassword} disabled={busy}><Text style={ss.loginActionText}>{busy ? '设置中...' : '下一步'}</Text></TouchableOpacity><TouchableOpacity onPress={() => { setShowLogin(false); refreshState(); }}><Text style={ss.loginCancel}>跳过</Text></TouchableOpacity></>)
+        : loginMode === 'register_set_name' ? (<><Text style={ss.loginTitle}>设置用户名</Text><TextInput style={ss.loginInput} placeholder="你的昵称" placeholderTextColor="#B2BEC3" value={editNickname} onChangeText={setEditNickname} autoFocus returnKeyType="done" onSubmitEditing={handleRegisterSetName} /><TouchableOpacity style={ss.loginActionBtn} onPress={handleRegisterSetName} disabled={busy}><Text style={ss.loginActionText}>完成</Text></TouchableOpacity></>)
+        : (<><Text style={ss.loginTitle}>登录</Text><TextInput style={ss.loginInput} placeholder="邮箱" placeholderTextColor="#B2BEC3" keyboardType="email-address" autoCapitalize="none" autoComplete="email" textContentType="emailAddress" value={email} onChangeText={setEmail} /><TextInput style={ss.loginInput} placeholder="密码" placeholderTextColor="#B2BEC3" secureTextEntry autoCapitalize="none" autoComplete="password" textContentType="password" value={password} onChangeText={setPassword} /><TouchableOpacity style={ss.loginActionBtn} onPress={handlePasswordLogin} disabled={busy}><Text style={ss.loginActionText}>{busy ? '登录中...' : '登录'}</Text></TouchableOpacity><View style={ss.loginLinks}><TouchableOpacity onPress={() => { setLoginMode('email_otp'); setStep('email'); setEmail(''); }}><Text style={ss.backToPhone}>验证码登录</Text></TouchableOpacity><TouchableOpacity onPress={() => Alert.alert('忘记密码', '将通过验证码验证身份后重置密码', [{ text: '发送验证码', onPress: () => { setOtpForReset(true); setLoginMode('email_otp'); setStep('email'); } }, { text: '取消', style: 'cancel' }])}><Text style={[ss.backToPhone, { color: '#E8A0BF' }]}>忘记密码</Text></TouchableOpacity><TouchableOpacity onPress={() => { setLoginMode('email_otp'); setStep('email'); setEmail(''); setOtp(''); Alert.alert('注册新账号','将通过验证码验证邮箱，然后设置密码和用户名'); }}><Text style={ss.backToPhone}>注册新账号</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowLogin(false)}><Text style={ss.loginCancel}>取消</Text></TouchableOpacity></>)}
+      </View></KeyboardAvoidingView></View>)}
       <Modal visible={showInvitePanel} transparent animationType="fade"><View style={ss.loginOverlay}><View style={ss.loginModal}><Text style={ss.loginTitle}>你的邀请码</Text><Text style={ss.inviteCodeBig} selectable>{inviteCode}</Text><Text style={ss.phoneHint}>长按复制邀请码发给对方</Text><TouchableOpacity style={ss.loginActionBtn} onPress={() => setShowInvitePanel(false)}><Text style={ss.loginActionText}>完成</Text></TouchableOpacity></View></View></Modal>
-
-      {/* 用户名 */}
       <Modal visible={showEditNickname} transparent animationType="fade"><TouchableOpacity style={ss.loginOverlay} activeOpacity={1} onPress={() => setShowEditNickname(false)}><View style={ss.loginModal}><Text style={ss.loginTitle}>编辑用户名</Text><TextInput style={ss.loginInput} placeholder="最多12个中文或24个英文" placeholderTextColor="#B2BEC3" value={editNickname} onChangeText={setEditNickname} maxLength={24} autoFocus returnKeyType="done" onSubmitEditing={handleSaveNickname} /><View style={{ flexDirection: 'row', gap: 12 }}><TouchableOpacity style={[ss.loginActionBtn, { flex: 1, backgroundColor: '#B2BEC3' }]} onPress={() => setShowEditNickname(false)}><Text style={ss.loginActionText}>取消</Text></TouchableOpacity><TouchableOpacity style={[ss.loginActionBtn, { flex: 1 }]} onPress={handleSaveNickname}><Text style={ss.loginActionText}>保存</Text></TouchableOpacity></View></View></TouchableOpacity></Modal>
-
-      {/* 头像 */}
       <Modal visible={showAvatarPicker} transparent animationType="fade"><TouchableOpacity style={ss.loginOverlay} activeOpacity={1} onPress={() => setShowAvatarPicker(false)}><View style={ss.loginModal}><Text style={ss.loginTitle}>选择头像</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>{AVATARS.map(emoji => <TouchableOpacity key={emoji} onPress={() => handleSetAvatar(emoji)} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.5)', borderRadius: 14 }}><Text style={{ fontSize: 28 }}>{emoji}</Text></TouchableOpacity>)}</View><TouchableOpacity onPress={handleUploadAvatar} style={{ marginTop: 16, backgroundColor: 'rgba(0,0,0,0.06)', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 }}><Text style={{ fontSize: 14, fontWeight: '600', color: '#2D3436' }}>📷 上传照片</Text></TouchableOpacity><TouchableOpacity onPress={() => setShowAvatarPicker(false)} style={{ marginTop: 8 }}><Text style={ss.loginCancel}>取消</Text></TouchableOpacity></View></TouchableOpacity></Modal>
-
-      {/* 修改密码 */}
       <Modal visible={showChangePassword} transparent animationType="fade"><TouchableOpacity style={ss.loginOverlay} activeOpacity={1} onPress={() => setShowChangePassword(false)}><View style={ss.loginModal}><Text style={ss.loginTitle}>修改密码</Text><TextInput style={ss.loginInput} placeholder="新密码 (至少6位)" placeholderTextColor="#B2BEC3" secureTextEntry autoCapitalize="none" autoComplete="new-password" textContentType="newPassword" value={newPassword} onChangeText={setNewPassword} /><TextInput style={ss.loginInput} placeholder="确认新密码" placeholderTextColor="#B2BEC3" secureTextEntry autoCapitalize="none" autoComplete="new-password" textContentType="newPassword" value={newPasswordConfirm} onChangeText={setNewPasswordConfirm} /><View style={{ flexDirection: 'row', gap: 12 }}><TouchableOpacity style={[ss.loginActionBtn, { flex: 1, backgroundColor: '#B2BEC3' }]} onPress={() => setShowChangePassword(false)}><Text style={ss.loginActionText}>取消</Text></TouchableOpacity><TouchableOpacity style={[ss.loginActionBtn, { flex: 1 }]} onPress={handleChangePassword} disabled={busy}><Text style={ss.loginActionText}>{busy ? '保存中...' : '保存'}</Text></TouchableOpacity></View></View></TouchableOpacity></Modal>
     </View>
   );

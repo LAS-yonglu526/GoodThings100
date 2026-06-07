@@ -210,14 +210,11 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
     const unsub = subscribeSharedItems(
       listId,
       (item) => {
-        // Partner added new item - reload
         load();
       },
       (item) => {
-        // Partner changed status
         if (item.completed_by && item.completed_by !== myUid) {
           setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: item.status as 'pending' | 'completed', completedAt: item.completed_at } : i));
-          // Show toast
           const toastMsg = `💌 Ta 刚完成了「${item.title}」`;
           setPartnerToast(toastMsg);
           if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -230,7 +227,6 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
         }
       },
       (id) => {
-        // Partner deleted item
         setItems(prev => prev.filter(i => i.id !== id));
       },
     );
@@ -334,7 +330,6 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
       if (s === 'completed') { const total = next.length; if (total > 0 && next.every(i => i.status === 'completed')) setTimeout(() => triggerCelebration(), 150); }
       return next;
     });
-    // Push to Supabase if shared
     if (isShared && myUid) {
       pushItemStatusChange(item.id, listId, s, myUid).catch(() => {});
     }
@@ -446,7 +441,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
     Animated.parallel([Animated.spring(batchUndoSlide, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }), Animated.timing(batchUndoFade, { toValue: 1, duration: 250, useNativeDriver: true })]).start();
   }, [selectedIds, executeBatchInDB]);
 
-  const batchDelete = useCallback(() => {
+  const doBatchDelete = useCallback(() => {
     const ids = Array.from(selectedIds); if (!ids.length) return;
     const prevItems = itemsRef.current;
     setItems(p => p.filter(i => !ids.includes(i.id)));
@@ -458,6 +453,14 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
     batchUndoSlide.setValue(-80); batchUndoFade.setValue(0);
     Animated.parallel([Animated.spring(batchUndoSlide, { toValue: 0, friction: 8, tension: 40, useNativeDriver: true }), Animated.timing(batchUndoFade, { toValue: 1, duration: 250, useNativeDriver: true })]).start();
   }, [selectedIds, executeBatchInDB]);
+
+  const batchDelete = useCallback(() => {
+    const ids = Array.from(selectedIds); if (!ids.length) return;
+    Alert.alert('确认删除', `确定要删除选中的 ${ids.length} 项吗？此操作可以撤销。`, [
+      { text: '取消', style: 'cancel' },
+      { text: '删除', style: 'destructive', onPress: doBatchDelete },
+    ]);
+  }, [selectedIds, doBatchDelete]);
 
   const handleBatchUndo = useCallback(() => {
     if (!batchCacheRef.current) return; const { prevItems } = batchCacheRef.current;
@@ -541,7 +544,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
             const mem = !!(item.memoryText || (item.mediaUris && item.mediaUris !== '[]' && item.mediaUris !== ''));
             const isDragged = dragActive.current && dragItemId.current === item.id;
             const isHighlighted = highlightIndex === index && !isDragged;
-            const isSelected = menuItemId === item.id;
+            const isMenuGlow = menuItemId === item.id;
 
             if (isDragged) return <View key={item.id} style={mode === 'gallery' ? [st.galleryCard, { backgroundColor: 'transparent', borderColor: 'transparent', width: GALLERY_STYLES.cardWidth }] : [pil.p, { backgroundColor: 'transparent', borderColor: 'transparent', paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }]} />;
 
@@ -553,19 +556,24 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
             return (
               <Animated.View key={item.id} style={{ transform: bounceX && bounceY ? [{ translateX: bounceX }, { translateY: bounceY }] : [] }}
                 onLayout={e => { const { y, height, x, width } = e.nativeEvent.layout; layoutMapRef.current.set(item.id, { y, h: height, x, w: width }); }}>
-                {isSelected && (
-                  <>
-                    <Animated.View style={[st.glowLayer, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, { backgroundColor: c, opacity: glowOuterOpacity, transform: [{ scale: glowOuterScale }] }]} pointerEvents="none" />
-                    <Animated.View style={[st.glowLayer, mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH }, { backgroundColor: c, opacity: glowOpacity, transform: [{ scale: glowScale }] }]} pointerEvents="none" />
-                  </>
-                )}
+                {isMenuGlow && (() => {
+                  const gl = layoutMapRef.current.get(item.id);
+                  const gw = gl ? gl.w : (mode === 'gallery' ? GALLERY_STYLES.cardWidth : (SW - 44));
+                  const gh = gl ? gl.h : (f ? f.minH : 44);
+                  return (
+                    <>
+                      <Animated.View style={[st.glowLayer, { width: gw, height: gh }, { backgroundColor: c, opacity: glowOuterOpacity, transform: [{ scale: glowOuterScale }] }]} pointerEvents="none" />
+                      <Animated.View style={[st.glowLayer, { width: gw, height: gh }, { backgroundColor: c, opacity: glowOpacity, transform: [{ scale: glowScale }] }]} pointerEvents="none" />
+                    </>
+                  );
+                })()}
                 <TouchableOpacity activeOpacity={0.8} delayLongPress={400}
                   onPress={() => { if (isSelectMode) { toggleSelectItem(item.id); return; } toggleStatus(item); }}
                   onLongPress={(e) => {
                     if (isSelectMode || dragActive.current) return;
                     const raw = items.find(i => i.id === item.id);
                     if (!raw) return;
-                    setMenuListId(item.id);
+                    setMenuItemId(item.id);
                     menuItemIdRef.current = item.id;
                     dragItemId.current = item.id;
                     dragSrcIndex.current = index;
@@ -595,19 +603,18 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
                     mode === 'gallery' ? st.galleryCard : pil.p,
                     mode !== 'gallery' ? { paddingHorizontal: f!.padH, paddingVertical: f!.padV, minHeight: f!.minH } : {},
                     mode === 'gallery' ? { width: GALLERY_STYLES.cardWidth } : {},
-                    isSelected ? { backgroundColor: c, borderColor: 'rgba(255,255,255,0.7)', transform: [{ scale: jellyScale.interpolate({ inputRange: [0.6, 1], outputRange: [0.96, 1] }) }] } : {},
-                    isDone ? { backgroundColor: c + '88' } : { backgroundColor: c + 'AA' },
-                    isSelectMode && isSelected ? { backgroundColor: '#E8A0BF' } : {},
+                    isMenuGlow ? { backgroundColor: c, borderColor: 'rgba(255,255,255,0.7)', transform: [{ scale: jellyScale.interpolate({ inputRange: [0.6, 1], outputRange: [0.96, 1] }) }] } : {},
+                    isSelectMode && selectedIds.has(item.id) ? { backgroundColor: c + 'DD', borderColor: c, borderWidth: 2.5 } : {},
+                    !isSelectMode && isDone ? { backgroundColor: c + '88' } : !isSelectMode ? { backgroundColor: c + 'AA' } : {},
                   ]}
                 >
-                  <Animated.View style={isSelectMode && !selectedIds.has(item.id) ? { opacity: selectDimAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.5] }) } : {}}>
-                    <View style={mode === 'gallery' ? st.galleryRow : pil.r}>
-                      {isSelectMode && <View style={[st.checkCircle, selectedIds.has(item.id) && st.checkCircleSelected]}><Text style={st.checkMark}>{selectedIds.has(item.id) ? '✓' : ''}</Text></View>}
-                      <Text style={mode === 'gallery' ? [st.galleryText, isDone && st.galleryTextDone] : [pil.t, { fontSize: f!.fontSize }, isDone && pil.tDone]} numberOfLines={2}>{item.title}</Text>
-                      {!isSelectMode && isDone && <Text style={mode === 'gallery' ? st.galleryDoneMark : pil.dm}>✓</Text>}
-                    </View>
-                    {mem && <View style={mode === 'gallery' ? st.galleryMem : pil.mem}><Text style={mode === 'gallery' ? st.galleryMemT : pil.memT}>📓</Text></View>}
-                  </Animated.View>
+                  <View style={mode === 'gallery' ? st.galleryRow : pil.r}>
+                    <Text style={[
+                      mode === 'gallery' ? [st.galleryText, isDone && st.galleryTextDone] : [pil.t, { fontSize: f!.fontSize }, isDone && pil.tDone],
+                      isSelectMode && !selectedIds.has(item.id) ? { opacity: 0.45 } : {},
+                    ]} numberOfLines={2}>{item.title}</Text>
+                    {mem && <View style={pil.g}><Text style={pil.gt}>✦</Text></View>}
+                  </View>
                 </TouchableOpacity>
               </Animated.View>
             );
@@ -649,7 +656,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
       </View>
 
       <MemoryModal visible={modalVisible} item={selectedItem} onClose={onClose} onSaved={onSave} />
-      <AddItemOverlay visible={showAddOverlay} listId={listId} existingTitles={items.map(i => i.title)} onAdd={handleAddItem} onClose={() => setShowAddOverlay(false)} />
+      <AddItemOverlay visible={showAddOverlay} currentCount={items.length} maxCount={listInfo?.itemLimit || 100} existingItems={items.map(i => i.title)} onAdd={handleAddItem} onClose={() => setShowAddOverlay(false)} />
 
       {showCelebration && (
         <View style={st.celebO} pointerEvents="none">
@@ -675,6 +682,44 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
           ))}
         </View>
       )}
+
+      {/* Drag overlay */}
+      {dragVisible && (
+        <Animated.View style={[st.dragOverlay, { transform: [{ translateX: dragOffset.x }, { translateY: dragOffset.y }], left: scrollLeftRef.current + 12 + dragPillX.current - scrollLeftRef.current - 12, top: scrollTopRef.current + (layoutMapRef.current.get(dragItemId.current)?.y ?? 0) - scrollYRef.current }]} pointerEvents="none">
+          {dragIsGallery.current ? (
+            <View style={[st.galleryCard, { backgroundColor: dragItemColor.current + 'EE', width: dragItemCardW.current, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 10, transform: [{ scale: 1.05 }] }]}>
+              <Text style={{ fontSize: dragItemFontSize.current, fontWeight: '700', color: '#2D3436' }} numberOfLines={2}>{dragItemTitle.current}</Text>
+            </View>
+          ) : (
+            <View style={[pil.p, { backgroundColor: dragItemColor.current + 'EE', paddingHorizontal: dragItemPadH.current, paddingVertical: dragItemPadV.current, minHeight: dragItemMinH.current, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 10, transform: [{ scale: 1.05 }], alignSelf: 'flex-start' }]}>
+              <Text style={{ fontSize: dragItemFontSize.current, fontWeight: '700', color: '#2D3436' }} numberOfLines={1}>{dragItemTitle.current}</Text>
+            </View>
+          )}
+        </Animated.View>
+      )}
+
+      {/* Long-press context menu */}
+      {menuItemId && menuItem && (() => {
+        const ly = layoutMapRef.current.get(menuItemId);
+        const menuTop = ly ? scrollTopRef.current + ly.y - scrollYRef.current + ly.h + 8 : SH * 0.35;
+        const hasMem = !!(menuItem.memoryText || (menuItem.mediaUris && menuItem.mediaUris !== '[]' && menuItem.mediaUris !== ''));
+        return (
+          <BlurView intensity={80} tint="light" style={[st.menuFloat, { top: menuTop, bottom: undefined }]}>
+            <TouchableOpacity style={st.menuBtn} onPress={() => handleMenuAction('edit')}>
+              <Text style={st.menuBtnText}>✏️ 编辑</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={st.menuBtn} onPress={() => handleMenuAction('memory')}>
+              <Text style={st.menuBtnText}>{hasMem ? '📝 手记' : '📝 添加手记'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[st.menuBtn, st.menuDelBtn]} onPress={() => handleMenuAction('delete')}>
+              <Text style={[st.menuBtnText, { color: '#FF3B30' }]}>🗑 删除</Text>
+            </TouchableOpacity>
+          </BlurView>
+        );
+      })()}
+
+      {/* Drop indicator */}
+      <Animated.View style={[st.dropIndicator, { left: dropLeft, top: dropTop, width: dropW, height: dropH, opacity: dropOpa }]} pointerEvents="none" />
     </View>
   );
 }
@@ -688,7 +733,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, marginHorizontal: 12, marginBottom: 4,
     borderRadius: 32, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.55)',
   },
-  bb: { width: 36, height: 36 },
+  bb: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   bt: { fontSize: 20, color: '#2D3436', fontWeight: '600' },
   hc: { flex: 1, alignItems: 'center' },
   ht: { fontSize: 17, fontWeight: '700', color: '#2D3436' },
@@ -705,7 +750,7 @@ const st = StyleSheet.create({
   pf: { height: '100%', backgroundColor: '#7BC67E', borderRadius: 1.5 },
   pt: { fontSize: 11, color: '#7A8A9E', fontWeight: '600', textAlign: 'center', marginTop: 2 },
   sc: { flex: 1 },
-  galleryContainer: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, paddingTop: 10, paddingBottom: 100, gap: 12 },
+  galleryContainer: { flexDirection: 'column', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 60, paddingTop: 12, gap: 12 },
   fluidContainer: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, paddingTop: 10, paddingBottom: 100 },
   galleryCard: {
     borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, minHeight: 50,
@@ -713,7 +758,7 @@ const st = StyleSheet.create({
     shadowColor: '#4A5568', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
   galleryRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  galleryText: { fontSize: 18, color: '#2D3436', fontWeight: '600', flex: 1, lineHeight: 24 },
+  galleryText: { fontSize: 18, color: '#2D3436', fontWeight: '600', flex: 1,  },
   galleryTextDone: { textDecorationLine: 'line-through', opacity: 0.5 },
   galleryDoneMark: { fontSize: 16, color: '#7BC67E', fontWeight: '700' },
   galleryMem: { marginTop: 4 },
@@ -756,17 +801,29 @@ const st = StyleSheet.create({
   },
   celebEmoji: { fontSize: 48 },
   celebText: { fontSize: 20, fontWeight: '800', color: '#2D3436', marginTop: 8 },
+  dragOverlay: { position: 'absolute', zIndex: 999 },
+  menuFloat: {
+    position: 'absolute', bottom: 100, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
+  },
+  menuBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 14, backgroundColor: 'rgba(45,52,54,0.08)' },
+  menuDelBtn: { backgroundColor: 'rgba(255,59,48,0.1)' },
+  menuBtnText: { fontSize: 14, fontWeight: '700', color: '#2D3436' },
+  dropIndicator: { position: 'absolute', borderRadius: 3, backgroundColor: '#E8A0BF', zIndex: 998 },
 });
 
 const pil = StyleSheet.create({
   p: {
-    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, minHeight: 44,
+    borderRadius: 20, paddingHorizontal: 16, minHeight: 44, justifyContent: 'center',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)',
     shadowColor: '#4A5568', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
   r: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  t: { color: '#2D3436', fontWeight: '600', flex: 1, lineHeight: 24 },
+  t: { color: '#2D3436', fontWeight: '600', textAlignVertical: 'center' },
   tDone: { textDecorationLine: 'line-through', opacity: 0.5 },
+  g: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  gt: { fontSize: 13, color: '#FF9AA2' },
   dm: { fontSize: 16, color: '#7BC67E', fontWeight: '700' },
   mem: { marginTop: 4 },
   memT: { fontSize: 12, color: '#7A8A9E' },

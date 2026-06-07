@@ -210,3 +210,25 @@ ALTER PUBLICATION supabase_realtime ADD TABLE shared_memories;
 
 **文档版本**: 8.0
 **生成者**: Cline (Claude)
+
+---
+
+## 9. 迭代记录 2026-06-07 — ListDetailScreen 胶囊 UI 修复
+
+### 修复清单
+| # | 修复项 | 文件 | 说明 |
+|---|--------|------|------|
+| 1 | 手记提示图案位置 | `ListDetailScreen.tsx` | `✦` 从胶囊下方移至文字行内右侧（`pil.r` 内），补全 `pil.g`/`pil.gt` 样式（20×20, `#FF9AA2` 粉） |
+| 2 | 选择模式 dim 策略 | `ListDetailScreen.tsx` | 整体 `opacity: 0.45` 移除，仅对 `<Text>` 做 dim，手记 `✦` 不再被隐藏 |
+| 3 | 长按菜单 emoji | `ListDetailScreen.tsx` | `` 黑色占位符 → `📝` |
+| 4 | 选择胶囊保留原色 + 边框高亮 | `ListDetailScreen.tsx` | 选中时 `backgroundColor: c+'DD'` + `borderColor: c` + `borderWidth: 2.5`，不再死红 |
+| 5 | 返回按钮←居中 | `ListDetailScreen.tsx` | `st.bb` 加 `alignItems:'center'` + `justifyContent:'center'` |
+| 6 | 100颗胶囊文字居中 | `ListDetailScreen.tsx` | `pil.p` 加 `justifyContent:'center'`，`pil.t` 保留 `textAlignVertical:'center'` |
+| 7 | 呼吸效果匹配胶囊尺寸 | `ListDetailScreen.tsx` | glow 层改用 `layoutMapRef` 实测 `gw`/`gh` 替代估计算 |
+| 8 | 防御规范加固 | `.clinerules/GOODTHINGS_RULES.md` | 新增「防御性编程铁律」「UI弹性与数值底线」「状态快照」三章 |
+| 9 | Gallery 布局回归 | `ListDetailScreen.tsx` | 恢复 `galleryContainer: flexDirection:'column'`（防止退化） |
+
+### 踩坑记录
+- 外部脚本 `fix_all.js` 修改后导致代码严重退化（gallery 变 wrap、✦变📓、检查框出现、✕被删等），通过 `write_to_file` 完整覆盖恢复后叠加新修复
+- `fontSize` 底线已从 `getFluidStyles` 确认：最小值 `Math.max(32, padV*2+fontSize+2)` → fontSize 最低 11（100颗时），但 `padV` 最低 4 已满足 ≥ 0，不再是硬编码
+- 16:42 对话中断后文件被外部退化，19:51 读取 State Snapshot 全量复原
