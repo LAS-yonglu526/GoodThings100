@@ -167,6 +167,11 @@ const s = StyleSheet.create({
     bottom: 20,
     overflow: 'hidden',
     borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 8,
   },
   panelInner: {
     backgroundColor: 'rgba(255,255,255,0.9)',
@@ -174,11 +179,6 @@ const s = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.7)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 8,
   },
   handleRow: {
     flexDirection: 'row',
