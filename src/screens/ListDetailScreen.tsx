@@ -701,25 +701,23 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
           </Animated.View>
         )}
 
-        {undoRendered && batchUndoLabel ? (
+        {undoRendered && (
           <Animated.View style={[st.undoOuterWrap, { opacity: undoOuterFade, transform: [{ translateY: undoOuterSlide }] }]}>
             <BlurView intensity={85} tint="light" style={st.undoBar}>
-              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
-                <Text style={st.undoText}>{batchUndoLabel}</Text>
-                <TouchableOpacity onPress={handleBatchUndo} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-              </Animated.View>
+              {batchUndoLabel ? (
+                <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
+                  <Text style={st.undoText}>{batchUndoLabel}</Text>
+                  <TouchableOpacity onPress={handleBatchUndo} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
+                </Animated.View>
+              ) : undoItems ? (
+                <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: undoFadeAnim, transform: [{ translateY: undoSlideAnim }] }}>
+                  <Text style={st.undoText}>已移动</Text>
+                  <TouchableOpacity onPress={() => { const p = undoItems!; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
+                </Animated.View>
+              ) : null}
             </BlurView>
           </Animated.View>
-        ) : undoRendered && undoItems ? (
-          <Animated.View style={[st.undoOuterWrap, { opacity: undoOuterFade, transform: [{ translateY: undoOuterSlide }] }]}>
-            <BlurView intensity={85} tint="light" style={st.undoBar}>
-              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: undoFadeAnim, transform: [{ translateY: undoSlideAnim }] }}>
-                <Text style={st.undoText}>已移动</Text>
-                <TouchableOpacity onPress={() => { const p = undoItems!; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-              </Animated.View>
-            </BlurView>
-          </Animated.View>
-        ) : null}
+        )}
 
 
         {!isSelectMode && !deletingCapsuleId && (

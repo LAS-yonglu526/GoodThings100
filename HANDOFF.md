@@ -213,6 +213,49 @@ ALTER PUBLICATION supabase_realtime ADD TABLE shared_memories;
 
 ---
 
+## 10. 迭代记录 2026-06-16/17 — 胶囊页UI大修与动画系统重构
+
+### 批量框布局与动画
+| # | 修复项 | 说明 |
+|---|--------|------|
+| 1 | 批量框/撤销条位置 | 从顶部遮挡胶囊 → 移到页面下方悬浮层 → 并排FAB → 最终居中悬浮 `alignSelf:'center'`，重心对齐 FAB (`bottom:37`) |
+| 2 | 果冻弹出动画 | `Animated.spring` friction:8 tension:60 进入，friction:10 tension:40 退出 |
+| 3 | 退出动画不可见 | 条件渲染提前卸载 View → 用 `batchRendered`/`undoRendered` state 保持 DOM 存活到 spring 回调完成 |
+| 4 | 批量框重复弹出 | `useEffect` 依赖 `selectedIds.size` 导致每勾选一次触发 → 改为依赖 `showBatch` 布尔值 |
+| 5 | 撤销条消失时批量条瞬切 | `undoWillShow` 判断：撤销条将要出现时批量栏直接 `setValue(0)` 不播退出动画 |
+
+### 其他 UI 修复
+| # | 修复项 | 文件 | 说明 |
+|---|--------|------|------|
+| 1 | 手记✦图案 | `ListDetailScreen.tsx` | 从胶囊下方移到文字行内右侧 + `pil.g`/`pil.gt` 粉色渐变 |
+| 2 | 选择胶囊保留原色 | `ListDetailScreen.tsx` | 选中态 `backgroundColor:c+'DD'` + `borderColor:c` 2.5px 边框 |
+| 3 | 返回按钮←居中 | `ListDetailScreen.tsx` | `st.bb` 加 `alignItems/justifyContent:'center'` |
+| 4 | 100颗胶囊文字垂直居中 | `ListDetailScreen.tsx` | `pil.p` 加 `justifyContent:'center'` |
+| 5 | 呼吸效果匹配胶囊尺寸 | `ListDetailScreen.tsx` | glow层用 `layoutMapRef` 实测 `gw`/`gh` |
+| 6 | AddItemOverlay 圆角 | `AddItemOverlay.tsx` | shadow 从 panelInner 移到外层 panel，去掉 `overflow:'hidden'` |
+| 7 | 批量框绿色文案 | `ListDetailScreen.tsx` | "✓ 批量完成" 改为绿色(`#27AE60`) |
+
+### 多账号数据隔离 (v1.4.1)
+| # | 修复项 | 说明 |
+|---|--------|------|
+| 1 | 每账号独立凭证 | `auth.ts`: `credKey(userId)` 分槽存储，`quickSignIn(userId)` 传目标ID |
+| 2 | 登录合并无主数据 | `database.ts`: `getOrphanLists()` + `deleteOrphanData()`；`ListHomeScreen.tsx` 登录时弹窗合并/删除 |
+| 3 | 手记删除提醒不抢占 | `ListDetailScreen.tsx`: 长按时重置 `memoryWarnedRef` |
+
+### 防御体系加固
+| 文件 | 变更 |
+|------|------|
+| `.clinerules/GOODTHINGS_RULES.md` | 新增「防御性编程铁律」「UI弹性与数值底线」「状态快照」三章 |
+| `HANDOFF.md` | 迭代记录从第9章扩展至第10章 |
+
+### 踩坑记录
+- `replace_in_file` 对 JSX 超长单行反复匹配失败 → 写 node 脚本 (`fix_settings.js`) 直接字符串替换
+- 浮层布局三次重构：absolute上下跳动 → ScrollView内部 → 最终 absolute悬浮在 `st.s` 容器内
+- `overflow:'hidden'` 裁掉 `borderRadius` 圆角 → 去掉后 iOS 自动在圆角外画阴影
+- 批量条 `selectedIds.size` 作为 useEffect 依赖导致每勾选重新弹出 → 改为布尔 `showBatch`
+- TS 黄色警告来自 `undoItems` (nullable) 传给 `setItems` → 加 `undoItems!` 非空断言
+---
+
 ## 9. 迭代记录 2026-06-07 — ListDetailScreen 胶囊 UI 修复
 
 ### 修复清单
