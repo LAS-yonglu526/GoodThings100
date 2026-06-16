@@ -129,6 +129,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
 
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchRendered, setBatchRendered] = useState(false);
   const selectDimAnim = useRef(new Animated.Value(0)).current;
   const batchActionFade = useRef(new Animated.Value(0)).current;
   const batchActionSlide = useRef(new Animated.Value(20)).current;
@@ -208,21 +209,28 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
   useEffect(() => { memoryWarnedRef.current = false; initDatabase().then(() => load()); }, [load]);
   useEffect(() => { getCurrentUserId().then(setMyUid); }, []);
 
-  // 批量栏动画
+  // 批量栏动画 — 只在显示/隐藏状态切换时触发
+  const showBatch = isSelectMode && selectedIds.size > 0;
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (isSelectMode && selectedIds.size > 0) {
+    if (exitTimerRef.current) { clearTimeout(exitTimerRef.current); exitTimerRef.current = null; }
+    if (showBatch) {
+      setBatchRendered(true);
       batchActionFade.setValue(0); batchActionSlide.setValue(20);
       Animated.parallel([
         Animated.spring(batchActionFade, { toValue: 1, friction: 8, tension: 60, useNativeDriver: true }),
         Animated.spring(batchActionSlide, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }),
       ]).start();
-    } else {
+    } else if (batchRendered) {
       Animated.parallel([
         Animated.spring(batchActionFade, { toValue: 0, friction: 10, tension: 40, useNativeDriver: true }),
         Animated.spring(batchActionSlide, { toValue: 20, friction: 10, tension: 40, useNativeDriver: true }),
-      ]).start();
+      ]).start(() => {
+        setBatchRendered(false);
+      });
     }
-  }, [isSelectMode, selectedIds.size]);
+    return () => { if (exitTimerRef.current) clearTimeout(exitTimerRef.current); };
+  }, [showBatch]);
 
   // 撤销条动画
   useEffect(() => {
@@ -659,7 +667,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
           })}
         </ScrollView>
 
-        {isSelectMode && selectedIds.size > 0 && (
+        {batchRendered && (
           <Animated.View style={[st.batchBarWrap, { opacity: batchActionFade, transform: [{ translateY: batchActionSlide }] }]}>
             <BlurView intensity={80} tint="light" style={st.batchBar}>
               <TouchableOpacity style={st.batchBtn} onPress={batchComplete}><Text style={[st.batchBtnText, { color: '#27AE60' }]}>✓ 批量完成</Text></TouchableOpacity>
