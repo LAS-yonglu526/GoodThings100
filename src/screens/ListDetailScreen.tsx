@@ -597,6 +597,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
                     dragStartPageX.current = pillXCenter;
                     dragStartPageY.current = pillTop + (layoutMapRef.current.get(item.id)?.h ?? 0) / 2;
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                    memoryWarnedRef.current = false;
                     startGlow();
                   }}
                   style={[
@@ -633,7 +634,6 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
             <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
               <Text style={st.undoText}>{batchUndoLabel}</Text>
               <TouchableOpacity onPress={handleBatchUndo} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => { setBatchUndoLabel(''); batchCacheRef.current = null; if (batchUndoTimer.current) { clearTimeout(batchUndoTimer.current); } }}><Text style={st.undoClose}>✕</Text></TouchableOpacity>
             </Animated.View>
           </BlurView>
         ) : null}
@@ -643,7 +643,6 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
             <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: undoFadeAnim, transform: [{ translateY: undoSlideAnim }] }}>
               <Text style={st.undoText}>已移动</Text>
               <TouchableOpacity onPress={() => { const p = undoItems; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => setUndoItems(null)}><Text style={st.undoClose}>✕</Text></TouchableOpacity>
             </Animated.View>
           </BlurView>
         ) : null)}
@@ -770,7 +769,7 @@ const st = StyleSheet.create({
   ei: { fontSize: 16, color: '#2D3436', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 12, padding: 12 },
   glowLayer: { position: 'absolute', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
   batchBar: {
-    position: 'absolute', bottom: 30, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
+    position: 'absolute', top: 100, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
   },
@@ -778,7 +777,7 @@ const st = StyleSheet.create({
   batchDelBtn: { backgroundColor: 'rgba(255,59,48,0.1)' },
   batchBtnText: { fontSize: 14, fontWeight: '700', color: '#2D3436' },
   undoBar: {
-    position: 'absolute', bottom: 30, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
+    position: 'absolute', top: 100, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
   },

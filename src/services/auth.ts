@@ -28,15 +28,23 @@ export interface UserProfile {
   hasPassword: boolean;
 }
 
-// ─── 快捷凭证 ──────────────────────────────────
+// ─── 快捷凭证（每个账号独立存储）─────────────────
+
+function credKey(userId: string) { return `gt100_cred_${userId}`; }
 
 export async function saveQuickCredentials(email: string, password: string, userId: string) {
   const cred: StoredCredentials = { email, password, userId };
-  await SecureStore.setItemAsync(CREDENTIALS_KEY, JSON.stringify(cred)).catch(() => {});
+  await SecureStore.setItemAsync(credKey(userId), JSON.stringify(cred)).catch(() => {});
 }
 
-export async function getQuickCredentials(): Promise<StoredCredentials | null> {
+export async function getQuickCredentials(userId?: string): Promise<StoredCredentials | null> {
   try {
+    // 有 userId → 读该账号的凭证
+    if (userId) {
+      const raw = await SecureStore.getItemAsync(credKey(userId));
+      if (raw) return JSON.parse(raw) as StoredCredentials;
+    }
+    // fallback: 读旧全局凭证
     const raw = await SecureStore.getItemAsync(CREDENTIALS_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as StoredCredentials;
@@ -45,7 +53,10 @@ export async function getQuickCredentials(): Promise<StoredCredentials | null> {
   }
 }
 
-export async function removeQuickCredentials() {
+export async function removeQuickCredentials(userId?: string) {
+  if (userId) {
+    await SecureStore.deleteItemAsync(credKey(userId)).catch(() => {});
+  }
   await SecureStore.deleteItemAsync(CREDENTIALS_KEY).catch(() => {});
 }
 

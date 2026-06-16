@@ -27,6 +27,8 @@ import {
   getCompletedCount,
   updateListTitle,
   migrateOfflineData,
+  getOrphanLists,
+  deleteOrphanData,
   GoodList,
 } from '../services/database';
 import { getCurrentUserId } from '../services/auth';
@@ -96,10 +98,32 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
   const loadLists = useCallback(async () => {
     const uid = await getCurrentUserId();
     if (uid) {
-      // 首次登录：将旧的离线数据迁移到当前账号
-      const migrated = await migrateOfflineData(uid);
-      if (migrated > 0) {
-        console.log(`🔄 已迁移 ${migrated} 条离线数据到用户 ${uid}`);
+      // 检查是否有离线无主数据，弹窗让用户选择合并或删除
+      const orphans = await getOrphanLists();
+      if (orphans.length > 0) {
+        Alert.alert(
+          '发现未归属数据',
+          `你有 ${orphans.length} 个未登录时创建的清单。是否合并到当前账号？`,
+          [
+            {
+              text: '删除',
+              style: 'destructive',
+              onPress: async () => {
+                await deleteOrphanData();
+                await loadLists();
+              },
+            },
+            {
+              text: '合并',
+              onPress: async () => {
+                await migrateOfflineData(uid);
+                await loadLists();
+              },
+            },
+          ]
+        );
+        setLoading(false);
+        return;
       }
       const data = await getAllLists(uid);
       setLists(data);
@@ -118,10 +142,17 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
       setItemCounts(counts);
       setCompletedCounts(doneCounts);
     } else {
-      // 未登录：不展示任何已登录用户的数据
-      setLists([]);
-      setItemCounts({});
-      setCompletedCounts({});
+      // 未登录：展示离线创建的无主清单
+      const data = await getOrphanLists();
+      setLists(data);
+      const counts: Record<string, number> = {};
+      const doneCounts: Record<string, number> = {};
+      for (const l of data) {
+        counts[l.id] = await getItemCount(l.id);
+        doneCounts[l.id] = await getCompletedCount(l.id);
+      }
+      setItemCounts(counts);
+      setCompletedCounts(doneCounts);
     }
     setLoading(false);
   }, [partnerSharedLists]);

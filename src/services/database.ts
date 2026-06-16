@@ -56,6 +56,17 @@ export async function getAllLists(userId?: string | null): Promise<GoodList[]> {
 }
 export async function getSharedLists(): Promise<GoodList[]> { return getDB().getAllAsync<GoodList>('SELECT * FROM lists WHERE isShared = 1 ORDER BY createdAt DESC'); }
 
+/** 获取所有无主清单（userId=''） */
+export async function getOrphanLists(): Promise<GoodList[]> {
+  return getDB().getAllAsync<GoodList>('SELECT * FROM lists WHERE userId = ? ORDER BY createdAt DESC', ['']);
+}
+
+/** 永久删除无主数据 */
+export async function deleteOrphanData(): Promise<void> {
+  await getDB().execAsync("DELETE FROM good_items WHERE listId IN (SELECT id FROM lists WHERE userId = '')");
+  await getDB().execAsync("DELETE FROM lists WHERE userId = ''");
+}
+
 /** 将旧的无主数据（userId=''）迁移到当前用户 */
 export async function migrateOfflineData(uid: string): Promise<number> {
   const d = getDB();
