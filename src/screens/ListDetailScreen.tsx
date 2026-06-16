@@ -811,7 +811,7 @@ const st = StyleSheet.create({
   e: { padding: 16 },
   ei: { fontSize: 16, color: '#2D3436', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 12, padding: 12 },
   glowLayer: { position: 'absolute', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
-  batchBarWrap: { position: 'absolute', bottom: 37, left: 20, right: 80 },
+  batchBarWrap: { position: 'absolute', bottom: 37, alignSelf: 'center' },
   batchBar: {
     borderRadius: 20, overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
@@ -820,7 +820,7 @@ const st = StyleSheet.create({
   batchBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 14, backgroundColor: 'rgba(45,52,54,0.08)' },
   batchDelBtn: { backgroundColor: 'rgba(255,59,48,0.1)' },
   batchBtnText: { fontSize: 14, fontWeight: '700', color: '#2D3436' },
-  undoOuterWrap: { position: 'absolute', bottom: 37, left: 20, right: 80, alignItems: 'center' },
+  undoOuterWrap: { position: 'absolute', bottom: 37, alignSelf: 'center', alignItems: 'center' },
   undoBar: {
     alignSelf: 'center', borderRadius: 20, overflow: 'hidden',
     paddingHorizontal: 16,
