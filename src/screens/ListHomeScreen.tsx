@@ -26,8 +26,10 @@ import {
   getItemCount,
   getCompletedCount,
   updateListTitle,
+  migrateOfflineData,
   GoodList,
 } from '../services/database';
+import { getCurrentUserId } from '../services/auth';
 import { TEMPLATES, TEMPLATE_LIST } from '../services/templates';
 
 const { width: SW, height: SH } = Dimensions.get('window');
@@ -66,12 +68,13 @@ interface Props {
   onSelectList: (listId: string, cardLayout: CardLayout, isShared?: boolean) => void;
   onGoSettings: () => void;
   onShareList?: (list: GoodList) => void;
+  onOpenSharing?: (listId: string) => void;
   partnerSharedLists?: GoodList[];
   partnerUid?: string | null;
   onOpenTimeline?: (listId: string, title: string, icon: string) => void;
 }
 
-export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings, onShareList, partnerSharedLists, partnerUid, onOpenTimeline }: Props) {
+export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings, onShareList, onOpenSharing, partnerSharedLists, partnerUid, onOpenTimeline }: Props) {
   const [lists, setLists] = useState<GoodList[]>([]);
   const [loading, setLoading] = useState(true);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
@@ -91,23 +94,35 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
   const cardLayouts = useRef<Record<string, CardLayout>>({});
 
   const loadLists = useCallback(async () => {
-    const data = await getAllLists();
-    setLists(data);
-    const counts: Record<string, number> = {};
-    const doneCounts: Record<string, number> = {};
-    for (const l of data) {
-      counts[l.id] = await getItemCount(l.id);
-      doneCounts[l.id] = await getCompletedCount(l.id);
-    }
-    // Also count partner shared lists
-    if (partnerSharedLists) {
-      for (const pl of partnerSharedLists) {
-        counts[pl.id] = await getItemCount(pl.id);
-        doneCounts[pl.id] = await getCompletedCount(pl.id);
+    const uid = await getCurrentUserId();
+    if (uid) {
+      // 首次登录：将旧的离线数据迁移到当前账号
+      const migrated = await migrateOfflineData(uid);
+      if (migrated > 0) {
+        console.log(`🔄 已迁移 ${migrated} 条离线数据到用户 ${uid}`);
       }
+      const data = await getAllLists(uid);
+      setLists(data);
+      const counts: Record<string, number> = {};
+      const doneCounts: Record<string, number> = {};
+      for (const l of data) {
+        counts[l.id] = await getItemCount(l.id);
+        doneCounts[l.id] = await getCompletedCount(l.id);
+      }
+      if (partnerSharedLists) {
+        for (const pl of partnerSharedLists) {
+          counts[pl.id] = await getItemCount(pl.id);
+          doneCounts[pl.id] = await getCompletedCount(pl.id);
+        }
+      }
+      setItemCounts(counts);
+      setCompletedCounts(doneCounts);
+    } else {
+      // 未登录：不展示任何已登录用户的数据
+      setLists([]);
+      setItemCounts({});
+      setCompletedCounts({});
     }
-    setItemCounts(counts);
-    setCompletedCounts(doneCounts);
     setLoading(false);
   }, [partnerSharedLists]);
 
@@ -120,7 +135,8 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
     const id = `list_${Date.now()}`;
     const tplTitle = TEMPLATE_LIST.find((t) => t.key === selectedTemplate)?.title || '新建清单';
     const title = newTitle.trim() || tplTitle.replace(/[\u3000]/g, '').trim();
-    await createList(id, title, tpl.themeType, tpl.iconEmoji, tpl.coverColor, selectedLimit);
+    const uid = await getCurrentUserId();
+    await createList(id, title, tpl.themeType, tpl.iconEmoji, tpl.coverColor, selectedLimit, uid || undefined);
     if (tpl.items.length > 0) {
       await bulkInsertItems(id, tpl.items.slice(0, selectedLimit));
     }
@@ -306,6 +322,14 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
               <View style={s.menuCard}>
                 <Text style={s.menuTitle} numberOfLines={1}>{menuItem.iconEmoji} {menuItem.title}</Text>
                 <View style={s.menuSepH} />
+                {onOpenSharing && (
+                  <>
+                    <TouchableOpacity style={s.menuAction} onPress={() => { setMenuListId(null); if (typeof onOpenSharing === 'function') onOpenSharing(menuItem.id); }}>
+                      <Text style={s.menuActionIcon}>👥</Text><Text style={s.menuActionLabel}>共享管理</Text>
+                    </TouchableOpacity>
+                    <View style={s.menuSepH} />
+                  </>
+                )}
                 <TouchableOpacity style={s.menuAction} onPress={() => handleOpenEditTitle(menuItem)}>
                   <Text style={s.menuActionIcon}>✏️</Text><Text style={s.menuActionLabel}>编辑名称</Text>
                 </TouchableOpacity>

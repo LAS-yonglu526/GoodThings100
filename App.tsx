@@ -6,6 +6,7 @@ import ListDetailScreen from './src/screens/ListDetailScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import ShareModal from './src/components/ShareModal';
 import SharedTimelineScreen from './src/screens/SharedTimelineScreen';
+import SharedListManager from './src/components/SharedListManager';
 import { CardLayout } from './src/screens/ListHomeScreen';
 import { getItemCount, getCompletedCount, getCompletedItemTitles, GoodList, getSharedLists } from './src/services/database';
 import { getCurrentUserId } from './src/services/auth';
@@ -15,7 +16,7 @@ import { upsertItem } from './src/services/database';
 
 const { width: SW } = Dimensions.get('window');
 
-type Overlay = 'none' | 'detail' | 'settings' | 'timeline';
+type Overlay = 'none' | 'detail' | 'settings' | 'timeline' | 'sharedManager';
 
 export default function App() {
   const [overlay, setOverlay] = useState<Overlay>('none');
@@ -134,6 +135,7 @@ export default function App() {
         onSelectList={(id, layout, isShared) => openOverlay('detail', id, layout, isShared)}
         onGoSettings={() => openOverlay('settings', undefined, undefined, false)}
         onShareList={handleOpenShare}
+        onOpenSharing={(listId) => openOverlay('sharedManager', listId)}
         partnerSharedLists={partnerSharedLists}
         partnerUid={partnerUid}
         onOpenTimeline={handleOpenTimeline}
@@ -169,6 +171,12 @@ export default function App() {
                 .start(() => setOverlay('none'));
             }}
           />
+        </Animated.View>
+      )}
+
+      {overlay === 'sharedManager' && (
+        <Animated.View style={[s.overlay, { transform: [{ translateX: slideAnim }] }]} {...panResponder.panHandlers}>
+          <SharedListManager listId={selectedListId} onBack={closeOverlay} />
         </Animated.View>
       )}
 

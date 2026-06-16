@@ -44,14 +44,27 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 function getDB(): SQLite.SQLiteDatabase { if (!db) throw new Error('DB uninit'); return db; }
 
-export async function createList(id: string, title: string, themeType: string, iconEmoji: string, coverColor: string, itemLimit: number) {
-  await getDB().runAsync('INSERT INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt, isShared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, '', title, themeType, iconEmoji, coverColor, itemLimit, new Date().toISOString(), 0]);
+export async function createList(id: string, title: string, themeType: string, iconEmoji: string, coverColor: string, itemLimit: number, userId?: string) {
+  await getDB().runAsync('INSERT INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt, isShared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, userId || '', title, themeType, iconEmoji, coverColor, itemLimit, new Date().toISOString(), 0]);
 }
-export async function createSharedList(id: string, title: string, themeType: string, iconEmoji: string, coverColor: string, itemLimit: number) {
-  await getDB().runAsync('INSERT INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt, isShared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, '', title, themeType, iconEmoji, coverColor, itemLimit, new Date().toISOString(), 1]);
+export async function createSharedList(id: string, title: string, themeType: string, iconEmoji: string, coverColor: string, itemLimit: number, userId?: string) {
+  await getDB().runAsync('INSERT INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt, isShared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, userId || '', title, themeType, iconEmoji, coverColor, itemLimit, new Date().toISOString(), 1]);
 }
-export async function getAllLists(): Promise<GoodList[]> { return getDB().getAllAsync<GoodList>('SELECT * FROM lists ORDER BY createdAt DESC'); }
+export async function getAllLists(userId?: string | null): Promise<GoodList[]> {
+  if (userId) return getDB().getAllAsync<GoodList>('SELECT * FROM lists WHERE userId = ? ORDER BY createdAt DESC', [userId]);
+  return getDB().getAllAsync<GoodList>('SELECT * FROM lists ORDER BY createdAt DESC');
+}
 export async function getSharedLists(): Promise<GoodList[]> { return getDB().getAllAsync<GoodList>('SELECT * FROM lists WHERE isShared = 1 ORDER BY createdAt DESC'); }
+
+/** 将旧的无主数据（userId=''）迁移到当前用户 */
+export async function migrateOfflineData(uid: string): Promise<number> {
+  const d = getDB();
+  let count = 0;
+  const { changes: c1 } = await d.runAsync('UPDATE lists SET userId = ? WHERE userId = ?', [uid, '']);
+  count += c1;
+  // good_items 没有 userId 列，但通过 listId 关联的 list 已有 userId，无需额外迁移
+  return count;
+}
 export async function deleteList(id: string) { await getDB().runAsync('DELETE FROM good_items WHERE listId = ?', [id]); await getDB().runAsync('DELETE FROM lists WHERE id = ?', [id]); }
 export async function bulkInsertItems(listId: string, titles: string[]) {
   const d = getDB();
