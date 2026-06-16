@@ -130,6 +130,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchRendered, setBatchRendered] = useState(false);
+  const [undoRendered, setUndoRendered] = useState(false);
   const selectDimAnim = useRef(new Animated.Value(0)).current;
   const batchActionFade = useRef(new Animated.Value(0)).current;
   const batchActionSlide = useRef(new Animated.Value(20)).current;
@@ -209,12 +210,14 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
   useEffect(() => { memoryWarnedRef.current = false; initDatabase().then(() => load()); }, [load]);
   useEffect(() => { getCurrentUserId().then(setMyUid); }, []);
 
+  const batchHideAnim = useRef<Animated.CompositeAnimation | null>(null);
+
   // 批量栏动画 — 只在显示/隐藏状态切换时触发
   const showBatch = isSelectMode && selectedIds.size > 0;
-  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (exitTimerRef.current) { clearTimeout(exitTimerRef.current); exitTimerRef.current = null; }
     if (showBatch) {
+      // 停止上一次退出动画（如果有的话）
+      if (batchHideAnim.current) { batchHideAnim.current.stop(); batchHideAnim.current = null; }
       setBatchRendered(true);
       batchActionFade.setValue(0); batchActionSlide.setValue(20);
       Animated.parallel([
@@ -222,32 +225,54 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
         Animated.spring(batchActionSlide, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }),
       ]).start();
     } else if (batchRendered) {
-      Animated.parallel([
-        Animated.spring(batchActionFade, { toValue: 0, friction: 10, tension: 40, useNativeDriver: true }),
-        Animated.spring(batchActionSlide, { toValue: 20, friction: 10, tension: 40, useNativeDriver: true }),
-      ]).start(() => {
+      const undoWillShow = !!(batchUndoLabel || undoItems);
+      if (undoWillShow) {
+        batchActionFade.setValue(0);
+        batchActionSlide.setValue(20);
         setBatchRendered(false);
-      });
+      } else {
+        batchHideAnim.current = Animated.parallel([
+          Animated.spring(batchActionFade, { toValue: 0, friction: 10, tension: 40, useNativeDriver: true }),
+          Animated.spring(batchActionSlide, { toValue: 20, friction: 10, tension: 40, useNativeDriver: true }),
+        ]);
+        batchHideAnim.current.start(() => {
+          setBatchRendered(false);
+          batchHideAnim.current = null;
+        });
+      }
     }
-    return () => { if (exitTimerRef.current) clearTimeout(exitTimerRef.current); };
+    return () => {
+      if (batchHideAnim.current) { batchHideAnim.current.stop(); batchHideAnim.current = null; }
+    };
   }, [showBatch]);
 
   // 撤销条动画
+  const showUndo2 = !!(batchUndoLabel || undoItems);
+  const undoHideAnim = useRef<Animated.CompositeAnimation | null>(null);
   useEffect(() => {
-    const show = !!batchUndoLabel || !!undoItems;
-    if (show) {
+    if (showUndo2) {
+      // 停止上一次退出动画
+      if (undoHideAnim.current) { undoHideAnim.current.stop(); undoHideAnim.current = null; }
+      setUndoRendered(true);
       undoOuterFade.setValue(0); undoOuterSlide.setValue(20);
       Animated.parallel([
         Animated.spring(undoOuterFade, { toValue: 1, friction: 8, tension: 60, useNativeDriver: true }),
         Animated.spring(undoOuterSlide, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }),
       ]).start();
-    } else {
-      Animated.parallel([
+    } else if (undoRendered) {
+      undoHideAnim.current = Animated.parallel([
         Animated.spring(undoOuterFade, { toValue: 0, friction: 10, tension: 40, useNativeDriver: true }),
         Animated.spring(undoOuterSlide, { toValue: 20, friction: 10, tension: 40, useNativeDriver: true }),
-      ]).start();
+      ]);
+      undoHideAnim.current.start(() => {
+        setUndoRendered(false);
+        undoHideAnim.current = null;
+      });
     }
-  }, [batchUndoLabel, undoItems]);
+    return () => {
+      if (undoHideAnim.current) { undoHideAnim.current.stop(); undoHideAnim.current = null; }
+    };
+  }, [showUndo2]);
 
   // Realtime subscription for shared list
   useEffect(() => {
@@ -676,7 +701,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
           </Animated.View>
         )}
 
-        {batchUndoLabel ? (
+        {undoRendered && batchUndoLabel ? (
           <Animated.View style={[st.undoOuterWrap, { opacity: undoOuterFade, transform: [{ translateY: undoOuterSlide }] }]}>
             <BlurView intensity={85} tint="light" style={st.undoBar}>
               <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
@@ -685,18 +710,17 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
               </Animated.View>
             </BlurView>
           </Animated.View>
-        ) : null}
-
-        {!isSelectMode && (undoItems ? (
+        ) : undoRendered && undoItems ? (
           <Animated.View style={[st.undoOuterWrap, { opacity: undoOuterFade, transform: [{ translateY: undoOuterSlide }] }]}>
             <BlurView intensity={85} tint="light" style={st.undoBar}>
               <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: undoFadeAnim, transform: [{ translateY: undoSlideAnim }] }}>
                 <Text style={st.undoText}>已移动</Text>
-                <TouchableOpacity onPress={() => { const p = undoItems; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => { const p = undoItems!; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
               </Animated.View>
             </BlurView>
           </Animated.View>
-        ) : null)}
+        ) : null}
+
 
         {!isSelectMode && !deletingCapsuleId && (
           <TouchableOpacity style={st.fab} onPress={handlePlusPress}>
