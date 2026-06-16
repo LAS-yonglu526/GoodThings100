@@ -166,6 +166,7 @@ const s = StyleSheet.create({
     right: 16,
     bottom: 20,
     overflow: 'hidden',
+    borderRadius: 24,
   },
   panelInner: {
     backgroundColor: 'rgba(255,255,255,0.9)',

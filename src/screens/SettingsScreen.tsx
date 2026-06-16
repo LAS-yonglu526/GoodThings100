@@ -200,7 +200,7 @@ export default function SettingsScreen({ onBack }: Props) {
       try {
         const result = await LocalAuthentication.authenticateAsync({ promptMessage: '验证身份以登录' });
         if (result.success) {
-          const { error: qErr, userId: qUid } = await quickSignIn();
+          const { error: qErr, userId: qUid } = await quickSignIn(acct.userId);
           if (!qErr && qUid) { refreshState(); return; }
           setEmail(acct.email); setStep('otp'); setLoginMode('email_otp'); setShowLogin(true);
           const { error: otpErr } = await sendEmailOTP(acct.email);

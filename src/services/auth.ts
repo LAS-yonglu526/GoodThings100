@@ -198,8 +198,8 @@ export async function signInWithPassword(
 
 // ─── 快捷登录（静默密码登录）────────────────────────────
 
-export async function quickSignIn(): Promise<{ error?: string; userId?: string }> {
-  const cred = await getQuickCredentials();
+export async function quickSignIn(userId?: string): Promise<{ error?: string; userId?: string }> {
+  const cred = await getQuickCredentials(userId);
   if (!cred) return { error: '无快捷凭证' };
   return signInWithPassword(cred.email, cred.password);
 }

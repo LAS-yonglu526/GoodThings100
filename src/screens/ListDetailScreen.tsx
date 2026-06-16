@@ -624,7 +624,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
 
         {isSelectMode && selectedIds.size > 0 && (
           <BlurView intensity={80} tint="light" style={st.batchBar}>
-            <TouchableOpacity style={st.batchBtn} onPress={batchComplete}><Text style={st.batchBtnText}>✓ 完成</Text></TouchableOpacity>
+            <TouchableOpacity style={st.batchBtn} onPress={batchComplete}><Text style={[st.batchBtnText, { color: '#27AE60' }]}>✓ 批量完成</Text></TouchableOpacity>
             <TouchableOpacity style={[st.batchBtn, st.batchDelBtn]} onPress={batchDelete}><Text style={[st.batchBtnText, { color: '#FF3B30' }]}>🗑 删除</Text></TouchableOpacity>
           </BlurView>
         )}
@@ -769,7 +769,7 @@ const st = StyleSheet.create({
   ei: { fontSize: 16, color: '#2D3436', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 12, padding: 12 },
   glowLayer: { position: 'absolute', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
   batchBar: {
-    position: 'absolute', top: 100, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
+    position: 'absolute', top: 130, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
   },
