@@ -130,6 +130,10 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const selectDimAnim = useRef(new Animated.Value(0)).current;
+  const batchActionFade = useRef(new Animated.Value(0)).current;
+  const batchActionSlide = useRef(new Animated.Value(20)).current;
+  const undoOuterFade = useRef(new Animated.Value(0)).current;
+  const undoOuterSlide = useRef(new Animated.Value(20)).current;
   const batchCacheRef = useRef<{ type: 'complete' | 'delete'; ids: string[]; prevItems: GoodItem[] } | null>(null);
   const [batchUndoLabel, setBatchUndoLabel] = useState('');
   const batchUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -203,6 +207,39 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
   }, [listId]);
   useEffect(() => { memoryWarnedRef.current = false; initDatabase().then(() => load()); }, [load]);
   useEffect(() => { getCurrentUserId().then(setMyUid); }, []);
+
+  // 批量栏动画
+  useEffect(() => {
+    if (isSelectMode && selectedIds.size > 0) {
+      batchActionFade.setValue(0); batchActionSlide.setValue(20);
+      Animated.parallel([
+        Animated.spring(batchActionFade, { toValue: 1, friction: 8, tension: 60, useNativeDriver: true }),
+        Animated.spring(batchActionSlide, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(batchActionFade, { toValue: 0, duration: 150, useNativeDriver: true }),
+        Animated.timing(batchActionSlide, { toValue: 20, duration: 150, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [isSelectMode, selectedIds.size]);
+
+  // 撤销条动画
+  useEffect(() => {
+    const show = !!batchUndoLabel || !!undoItems;
+    if (show) {
+      undoOuterFade.setValue(0); undoOuterSlide.setValue(20);
+      Animated.parallel([
+        Animated.spring(undoOuterFade, { toValue: 1, friction: 8, tension: 60, useNativeDriver: true }),
+        Animated.spring(undoOuterSlide, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(undoOuterFade, { toValue: 0, duration: 150, useNativeDriver: true }),
+        Animated.timing(undoOuterSlide, { toValue: 20, duration: 150, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [batchUndoLabel, undoItems]);
 
   // Realtime subscription for shared list
   useEffect(() => {
@@ -623,28 +660,34 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
         </ScrollView>
 
         {isSelectMode && selectedIds.size > 0 && (
-          <BlurView intensity={80} tint="light" style={st.batchBar}>
-            <TouchableOpacity style={st.batchBtn} onPress={batchComplete}><Text style={[st.batchBtnText, { color: '#27AE60' }]}>✓ 批量完成</Text></TouchableOpacity>
-            <TouchableOpacity style={[st.batchBtn, st.batchDelBtn]} onPress={batchDelete}><Text style={[st.batchBtnText, { color: '#FF3B30' }]}>🗑 删除</Text></TouchableOpacity>
-          </BlurView>
+          <Animated.View style={[st.batchBarWrap, { opacity: batchActionFade, transform: [{ translateY: batchActionSlide }] }]}>
+            <BlurView intensity={80} tint="light" style={st.batchBar}>
+              <TouchableOpacity style={st.batchBtn} onPress={batchComplete}><Text style={[st.batchBtnText, { color: '#27AE60' }]}>✓ 批量完成</Text></TouchableOpacity>
+              <TouchableOpacity style={[st.batchBtn, st.batchDelBtn]} onPress={batchDelete}><Text style={[st.batchBtnText, { color: '#FF3B30' }]}>🗑 删除</Text></TouchableOpacity>
+            </BlurView>
+          </Animated.View>
         )}
 
         {batchUndoLabel ? (
-          <BlurView intensity={85} tint="light" style={[st.batchBar, { backgroundColor: 'rgba(255,255,255,0.7)' }]}>
-            <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
-              <Text style={st.undoText}>{batchUndoLabel}</Text>
-              <TouchableOpacity onPress={handleBatchUndo} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-            </Animated.View>
-          </BlurView>
+          <Animated.View style={[st.undoOuterWrap, { opacity: undoOuterFade, transform: [{ translateY: undoOuterSlide }] }]}>
+            <BlurView intensity={85} tint="light" style={st.undoBar}>
+              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
+                <Text style={st.undoText}>{batchUndoLabel}</Text>
+                <TouchableOpacity onPress={handleBatchUndo} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
+              </Animated.View>
+            </BlurView>
+          </Animated.View>
         ) : null}
 
         {!isSelectMode && (undoItems ? (
-          <BlurView intensity={85} tint="light" style={st.undoBar}>
-            <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: undoFadeAnim, transform: [{ translateY: undoSlideAnim }] }}>
-              <Text style={st.undoText}>已移动</Text>
-              <TouchableOpacity onPress={() => { const p = undoItems; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-            </Animated.View>
-          </BlurView>
+          <Animated.View style={[st.undoOuterWrap, { opacity: undoOuterFade, transform: [{ translateY: undoOuterSlide }] }]}>
+            <BlurView intensity={85} tint="light" style={st.undoBar}>
+              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: undoFadeAnim, transform: [{ translateY: undoSlideAnim }] }}>
+                <Text style={st.undoText}>已移动</Text>
+                <TouchableOpacity onPress={() => { const p = undoItems; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
+              </Animated.View>
+            </BlurView>
+          </Animated.View>
         ) : null)}
 
         {!isSelectMode && !deletingCapsuleId && (
@@ -768,16 +811,18 @@ const st = StyleSheet.create({
   e: { padding: 16 },
   ei: { fontSize: 16, color: '#2D3436', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 12, padding: 12 },
   glowLayer: { position: 'absolute', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
+  batchBarWrap: { position: 'absolute', bottom: 37, left: 20, right: 80 },
   batchBar: {
-    position: 'absolute', bottom: 90, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
+    borderRadius: 20, overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
   },
   batchBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 14, backgroundColor: 'rgba(45,52,54,0.08)' },
   batchDelBtn: { backgroundColor: 'rgba(255,59,48,0.1)' },
   batchBtnText: { fontSize: 14, fontWeight: '700', color: '#2D3436' },
+  undoOuterWrap: { position: 'absolute', bottom: 37, left: 20, right: 80, alignItems: 'center' },
   undoBar: {
-    position: 'absolute', bottom: 90, alignSelf: 'center', borderRadius: 20, overflow: 'hidden',
+    alignSelf: 'center', borderRadius: 20, overflow: 'hidden',
     paddingHorizontal: 16,
     backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
