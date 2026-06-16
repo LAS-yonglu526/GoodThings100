@@ -218,8 +218,8 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(batchActionFade, { toValue: 0, duration: 150, useNativeDriver: true }),
-        Animated.timing(batchActionSlide, { toValue: 20, duration: 150, useNativeDriver: true }),
+        Animated.spring(batchActionFade, { toValue: 0, friction: 10, tension: 40, useNativeDriver: true }),
+        Animated.spring(batchActionSlide, { toValue: 20, friction: 10, tension: 40, useNativeDriver: true }),
       ]).start();
     }
   }, [isSelectMode, selectedIds.size]);
@@ -235,8 +235,8 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(undoOuterFade, { toValue: 0, duration: 150, useNativeDriver: true }),
-        Animated.timing(undoOuterSlide, { toValue: 20, duration: 150, useNativeDriver: true }),
+        Animated.spring(undoOuterFade, { toValue: 0, friction: 10, tension: 40, useNativeDriver: true }),
+        Animated.spring(undoOuterSlide, { toValue: 20, friction: 10, tension: 40, useNativeDriver: true }),
       ]).start();
     }
   }, [batchUndoLabel, undoItems]);
