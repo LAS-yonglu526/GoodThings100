@@ -620,32 +620,32 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
               </Animated.View>
             );
           })}
+
+          {isSelectMode && selectedIds.size > 0 && (
+            <View style={st.batchBar}>
+              <TouchableOpacity style={st.batchBtn} onPress={batchComplete}><Text style={[st.batchBtnText, { color: '#27AE60' }]}>✓ 批量完成</Text></TouchableOpacity>
+              <TouchableOpacity style={[st.batchBtn, st.batchDelBtn]} onPress={batchDelete}><Text style={[st.batchBtnText, { color: '#FF3B30' }]}>🗑 删除</Text></TouchableOpacity>
+            </View>
+          )}
+
+          {batchUndoLabel ? (
+            <View style={[st.batchBar, { backgroundColor: 'rgba(255,255,255,0.7)' }]}>
+              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
+                <Text style={st.undoText}>{batchUndoLabel}</Text>
+                <TouchableOpacity onPress={handleBatchUndo} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
+              </Animated.View>
+            </View>
+          ) : null}
+
+          {!isSelectMode && (undoItems ? (
+            <View style={st.undoBar}>
+              <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: undoFadeAnim, transform: [{ translateY: undoSlideAnim }] }}>
+                <Text style={st.undoText}>已移动</Text>
+                <TouchableOpacity onPress={() => { const p = undoItems; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
+              </Animated.View>
+            </View>
+          ) : null)}
         </ScrollView>
-
-        {isSelectMode && selectedIds.size > 0 && (
-          <BlurView intensity={80} tint="light" style={st.batchBar}>
-            <TouchableOpacity style={st.batchBtn} onPress={batchComplete}><Text style={[st.batchBtnText, { color: '#27AE60' }]}>✓ 批量完成</Text></TouchableOpacity>
-            <TouchableOpacity style={[st.batchBtn, st.batchDelBtn]} onPress={batchDelete}><Text style={[st.batchBtnText, { color: '#FF3B30' }]}>🗑 删除</Text></TouchableOpacity>
-          </BlurView>
-        )}
-
-        {batchUndoLabel ? (
-          <BlurView intensity={85} tint="light" style={[st.batchBar, { backgroundColor: 'rgba(255,255,255,0.7)' }]}>
-            <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
-              <Text style={st.undoText}>{batchUndoLabel}</Text>
-              <TouchableOpacity onPress={handleBatchUndo} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-            </Animated.View>
-          </BlurView>
-        ) : null}
-
-        {!isSelectMode && (undoItems ? (
-          <BlurView intensity={85} tint="light" style={st.undoBar}>
-            <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: undoFadeAnim, transform: [{ translateY: undoSlideAnim }] }}>
-              <Text style={st.undoText}>已移动</Text>
-              <TouchableOpacity onPress={() => { const p = undoItems; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
-            </Animated.View>
-          </BlurView>
-        ) : null)}
 
         {!isSelectMode && !deletingCapsuleId && (
           <TouchableOpacity style={st.fab} onPress={handlePlusPress}>
@@ -769,7 +769,7 @@ const st = StyleSheet.create({
   ei: { fontSize: 16, color: '#2D3436', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 12, padding: 12 },
   glowLayer: { position: 'absolute', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
   batchBar: {
-    position: 'absolute', bottom: 100, left: 20, right: 20, borderRadius: 20, overflow: 'hidden',
+    marginTop: 12, marginBottom: 8, marginHorizontal: 12, borderRadius: 20, overflow: 'hidden',
     backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
   },
@@ -777,7 +777,8 @@ const st = StyleSheet.create({
   batchDelBtn: { backgroundColor: 'rgba(255,59,48,0.1)' },
   batchBtnText: { fontSize: 14, fontWeight: '700', color: '#2D3436' },
   undoBar: {
-    position: 'absolute', bottom: 100, left: 60, right: 60, borderRadius: 20, overflow: 'hidden',
+    marginTop: 4, alignSelf: 'center', borderRadius: 20, overflow: 'hidden',
+    paddingHorizontal: 16,
     backgroundColor: 'rgba(255,255,255,0.55)', flexDirection: 'row', justifyContent: 'center', padding: 8, gap: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
   },
