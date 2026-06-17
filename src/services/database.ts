@@ -48,7 +48,7 @@ export async function createList(id: string, title: string, themeType: string, i
   await getDB().runAsync('INSERT INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt, isShared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, userId || '', title, themeType, iconEmoji, coverColor, itemLimit, new Date().toISOString(), 0]);
 }
 export async function createSharedList(id: string, title: string, themeType: string, iconEmoji: string, coverColor: string, itemLimit: number, userId?: string) {
-  await getDB().runAsync('INSERT INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt, isShared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, userId || '', title, themeType, iconEmoji, coverColor, itemLimit, new Date().toISOString(), 1]);
+  await getDB().runAsync('INSERT OR REPLACE INTO lists (id, userId, title, themeType, iconEmoji, coverColor, itemLimit, createdAt, isShared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, userId || '', title, themeType, iconEmoji, coverColor, itemLimit, new Date().toISOString(), 1]);
 }
 export async function getAllLists(userId?: string | null): Promise<GoodList[]> {
   if (userId) return getDB().getAllAsync<GoodList>('SELECT * FROM lists WHERE userId = ? ORDER BY createdAt DESC', [userId]);

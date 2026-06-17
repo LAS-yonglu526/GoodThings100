@@ -23,7 +23,7 @@ import {
   saveSessionToken,
 } from '../services/auth';
 import {
-  getMySharedListsAsOwner, SharedListSummary,
+  getMySharedLists, SharedListSummary,
   unshareList, joinListByCode,
 } from '../services/couple';
 import { pickAndCompressAvatar } from '../services/imageStorage';
@@ -94,7 +94,7 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
         const hasPw = hasPwLocal || (p?.hasPassword === true); setHasPasswordLocal(hasPw);
         if (p?.hasPassword && !hasPwLocal) { await SecureStore.setItemAsync(`gt100_has_pw_${uid}`, 'true').catch(() => {}); }
         getSavedAccounts().then(setSavedAccounts);
-        getMySharedListsAsOwner(uid).then(setSharedLists).catch(() => {});
+        getMySharedLists(uid).then(setSharedLists).catch(() => {});
       } else {
         setProfile(null); setSharedLists([]);
         getSavedAccounts().then(setSavedAccounts);
@@ -212,6 +212,7 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
     setJoinBusy(true); const { error } = await joinListByCode(joinCode.trim().toUpperCase(), userId); setJoinBusy(false);
     if (error) { Alert.alert('加入失败', error); return; }
     setJoinCode(''); Alert.alert('加入成功', '共享清单已同步到首页，返回即可查看');
+    refreshState();
     if (typeof onJoinedList === 'function') onJoinedList();
   };
   const formatTime = (iso: string) => {
@@ -287,7 +288,7 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
             <View style={{ marginTop: 24 }}>
               <View style={ss.sectionHead}>
                 <View style={[ss.sectionDot, { backgroundColor: '#6EB5FF' }]} />
-                <Text style={ss.sectionTitle}>我的共享</Text>
+                <Text style={ss.sectionTitle}>管理共享中的清单</Text>
               </View>
 
               <View style={ss.joinCard}>

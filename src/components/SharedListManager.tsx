@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  LayoutAnimation,
   Modal,
   Platform,
   ScrollView,
@@ -116,10 +117,10 @@ export default function SharedListManager({ listId, onBack }: Props) {
 
   const handleToggleCouple = async (val: boolean) => {
     if (!myUid) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setCoupleMode(val);
     const { error } = await toggleCoupleTag(listId, myUid, val);
-    if (error) { Alert.alert('失败', error); setCoupleMode(!val); return; }
-    await loadMembers();
+    if (error) { Alert.alert('失败', error); setCoupleMode(!val); }
   };
 
   const hasMembers = members.length > 0;
@@ -175,8 +176,8 @@ export default function SharedListManager({ listId, onBack }: Props) {
 
             <View style={[s.switchCard, coupleMode && s.switchCardCouple]}>
               <View style={{ flex: 1 }}>
-                <Text style={s.switchLabel}>💕 情侣视觉模式</Text>
-                <Text style={s.switchHint}>开启后所有成员看到粉色专属标识</Text>
+                <Text style={s.switchLabel}>💕 专属视觉标识</Text>
+                <Text style={s.switchHint}>开启后清单卡片显示专属视觉标识</Text>
               </View>
               <Switch
                 value={coupleMode}

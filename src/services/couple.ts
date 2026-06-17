@@ -1,5 +1,5 @@
 import { supabase } from '../config/supabase';
-import { updateItemStatus, createSharedList, upsertItem } from './database';
+import { updateItemStatus, createSharedList, upsertItem, initDatabase } from './database';
 
 /**
  * 统一共享系统 —— 清单级多对多共享
@@ -141,6 +141,7 @@ export async function joinListByCode(
 
   // 同步清单 + 胶囊到本地 SQLite
   try {
+    await initDatabase();
     const { data: sl } = await supabase.from('shared_lists').select('*').eq('list_id', invite.list_id).limit(1);
     if (sl && sl.length > 0) {
       const list = sl[0] as any;
@@ -321,7 +322,52 @@ export async function initListSharing(
 
 // ─── 获取共享清单汇总（设置页用）─────────────────────
 
-/** 获取"我创建的、已有其他成员"的清单列表 */
+/** 获取我参与的所有共享清单（我创建的 + 我加入的） */
+export async function getMySharedLists(uid: string): Promise<SharedListSummary[]> {
+  const { data: allMy } = await supabase
+    .from('list_members')
+    .select('list_id, role')
+    .eq('user_id', uid);
+  if (!allMy || allMy.length === 0) return [];
+
+  const listIds = [...new Set((allMy as any[]).map((d: any) => d.list_id))];
+
+  const { data: members } = await supabase.from('list_members').select('*').in('list_id', listIds);
+  if (!members) return [];
+
+  const groups: Record<string, any[]> = {};
+  (members as any[]).forEach((m: any) => { if (!groups[m.list_id]) groups[m.list_id] = []; groups[m.list_id].push(m); });
+
+  const sharedListIds = Object.keys(groups).filter(k => groups[k].length >= 2);
+  if (sharedListIds.length === 0) return [];
+
+  const { data: slData } = await supabase.from('shared_lists').select('*').in('list_id', sharedListIds);
+  const slMap: Record<string, any> = {}; (slData || []).forEach((sl: any) => { slMap[sl.list_id] = sl; });
+
+  const allUserIds = [...new Set((members as any[]).map((m: any) => m.user_id))];
+  const { data: profiles } = await supabase.from('profiles').select('user_id, nickname, avatar_emoji').in('user_id', allUserIds);
+  const profileMap: Record<string, any> = {}; (profiles || []).forEach((p: any) => { profileMap[p.user_id] = p; });
+
+  const { data: recentItems } = await supabase
+    .from('shared_items').select('list_id, title, completed_by, completed_at')
+    .in('list_id', sharedListIds).eq('status', 'completed').not('completed_by', 'is', null)
+    .order('completed_at', { ascending: false }).limit(sharedListIds.length * 3);
+  const latestByList: Record<string, any> = {};
+  (recentItems || []).forEach((ri: any) => { if (!latestByList[ri.list_id]) latestByList[ri.list_id] = ri; });
+
+  return sharedListIds.map(listId => {
+    const sl = slMap[listId] || {};
+    const memberList = (groups[listId] || []).map((m: any) => ({
+      userId: m.user_id, avatarEmoji: profileMap[m.user_id]?.avatar_emoji || '👤', nickname: profileMap[m.user_id]?.nickname || '',
+    }));
+    const hasCouple = (groups[listId] || []).some((m: any) => m.couple_tag === true);
+    const latest = latestByList[listId];
+    const latestActivity = latest ? { text: `${profileMap[latest.completed_by]?.nickname || '某人'} 完成了「${latest.title}」`, time: latest.completed_at } : undefined;
+    return { listId, title: sl.title || '', iconEmoji: sl.icon_emoji || '✨', themeType: sl.theme_type || 'custom', isCouple: hasCouple, memberCount: memberList.length, members: memberList.slice(0, 5), latestActivity };
+  });
+}
+
+/** @deprecated 请使用 getMySharedLists */
 export async function getMySharedListsAsOwner(uid: string): Promise<SharedListSummary[]> {
   // 1. 找到我是 owner 的 list_id
   const { data: owned } = await supabase
