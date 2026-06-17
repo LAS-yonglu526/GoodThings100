@@ -60,6 +60,8 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
   const [otpForReset, setOtpForReset] = useState(false);
   const [useBiometrics, setUseBiometrics] = useState(false);
   const [sharedLists, setSharedLists] = useState<SharedListSummary[]>([]);
+  const [sharedLoading, setSharedLoading] = useState(true);
+  const sharedCacheRef = useRef<SharedListSummary[]>([]);
   const [joinCode, setJoinCode] = useState('');
   const [joinBusy, setJoinBusy] = useState(false);
 
@@ -95,7 +97,7 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
         if (p?.hasPassword && !hasPwLocal) { await SecureStore.setItemAsync(`gt100_has_pw_${uid}`, 'true').catch(() => {}); }
         getSavedAccounts().then(setSavedAccounts);
         // 保留旧数据，新数据返回后再覆盖，避免闪烁
-        getMySharedLists(uid).then(data => setSharedLists(data)).catch(() => {});
+        getMySharedLists(uid).then(data => { setSharedLists(data); sharedCacheRef.current = data; setSharedLoading(false); }).catch(() => setSharedLoading(false));
       } else {
         setProfile(null); setSharedLists([]);
         getSavedAccounts().then(setSavedAccounts);
@@ -306,9 +308,9 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
                 <Text style={ss.joinHint}>好友分享给你的 6 位邀请码，输入后即可同步共享清单</Text>
               </View>
 
-              {sharedLists.length === 0 ? (
+              {sharedLists.length === 0 && !sharedLoading ? (
                 <View style={ss.hintCard}><Text style={ss.hintText}>还没有共享清单 · 长按首页卡片开启</Text></View>
-              ) : (
+              ) : sharedLists.length > 0 ? (
                 sharedLists.map(sl => (
                   <View key={sl.listId} style={[ss.sharedListItem, sl.isCouple && ss.sharedListItemCouple]}>
                     <View style={ss.sharedListHeader}>
@@ -336,7 +338,7 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
                     </TouchableOpacity>
                   </View>
                 ))
-              )}
+              ) : null}
             </View>
           )}
 
