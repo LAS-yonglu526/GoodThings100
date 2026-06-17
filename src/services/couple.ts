@@ -1,5 +1,5 @@
 import { supabase } from '../config/supabase';
-import { updateItemStatus } from './database';
+import { updateItemStatus, createSharedList, upsertItem } from './database';
 
 /**
  * 统一共享系统 —— 清单级多对多共享
@@ -139,7 +139,44 @@ export async function joinListByCode(
   });
   if (insertErr) return { error: insertErr.message };
 
+  // 同步清单 + 胶囊到本地 SQLite
+  try {
+    const { data: sl } = await supabase.from('shared_lists').select('*').eq('list_id', invite.list_id).limit(1);
+    if (sl && sl.length > 0) {
+      const list = sl[0] as any;
+      await createSharedList(list.list_id, list.title, list.theme_type, list.icon_emoji, list.cover_color, list.item_limit, uid);
+    }
+    const { data: items } = await supabase.from('shared_items').select('*').eq('list_id', invite.list_id);
+    if (items) {
+      for (const item of items as any[]) {
+        await upsertItem(item.id, item.list_id, item.title);
+      }
+    }
+  } catch {}
+
   return { listId: invite.list_id };
+}
+
+/** 群主切换清单的情侣视觉标签 */
+export async function toggleCoupleTag(
+  listId: string,
+  uid: string,
+  enabled: boolean,
+): Promise<{ error?: string }> {
+  const { data: owner } = await supabase
+    .from('list_members')
+    .select('role')
+    .eq('list_id', listId)
+    .eq('user_id', uid)
+    .single();
+  if (!owner || owner.role !== 'owner') return { error: '仅群主可以修改' };
+
+  const { error } = await supabase
+    .from('list_members')
+    .update({ couple_tag: enabled })
+    .eq('list_id', listId);
+  if (error) return { error: error.message };
+  return {};
 }
 
 // ─── list_members 成员管理 ──────────────────────────

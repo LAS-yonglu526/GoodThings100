@@ -71,12 +71,10 @@ interface Props {
   onGoSettings: () => void;
   onShareList?: (list: GoodList) => void;
   onOpenSharing?: (listId: string) => void;
-  partnerSharedLists?: GoodList[];
-  partnerUid?: string | null;
   onOpenTimeline?: (listId: string, title: string, icon: string) => void;
 }
 
-export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings, onShareList, onOpenSharing, partnerSharedLists, partnerUid, onOpenTimeline }: Props) {
+export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings, onShareList, onOpenSharing, onOpenTimeline }: Props) {
   const [lists, setLists] = useState<GoodList[]>([]);
   const [loading, setLoading] = useState(true);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
@@ -133,12 +131,6 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
         counts[l.id] = await getItemCount(l.id);
         doneCounts[l.id] = await getCompletedCount(l.id);
       }
-      if (partnerSharedLists) {
-        for (const pl of partnerSharedLists) {
-          counts[pl.id] = await getItemCount(pl.id);
-          doneCounts[pl.id] = await getCompletedCount(pl.id);
-        }
-      }
       setItemCounts(counts);
       setCompletedCounts(doneCounts);
     } else {
@@ -155,7 +147,7 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
       setCompletedCounts(doneCounts);
     }
     setLoading(false);
-  }, [partnerSharedLists]);
+  }, []);
 
   useEffect(() => {
     initDatabase().then(() => loadLists());
@@ -224,13 +216,6 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
   }
 
   const allLists = [...lists];
-  if (partnerSharedLists) {
-    for (const pl of partnerSharedLists) {
-      if (!allLists.find(l => l.id === pl.id)) {
-        allLists.push(pl);
-      }
-    }
-  }
 
   return (
     <View style={s.root}>
@@ -253,48 +238,7 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
           contentContainerStyle={s.gridScrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* 伴侣共享清单区 */}
-          {partnerUid && partnerSharedLists && partnerSharedLists.length > 0 && (
-            <View style={s.partnerSection}>
-              <Text style={s.partnerSectionTitle}>💕 Ta 的共享清单</Text>
-              <View style={s.gridContainer}>
-                {partnerSharedLists.map((item) => {
-                  const total = itemCounts[item.id] || 0;
-                  const done = completedCounts[item.id] || 0;
-                  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-                  const layout = cardLayouts.current[item.id] || { x: 16, y: 140, width: SW * 0.42, height: 145 };
-                  return (
-                    <TouchableOpacity
-                      key={item.id}
-                      style={[s.card, { backgroundColor: item.coverColor + '88', borderColor: '#E8A0BF88', borderWidth: 2 }]}
-                      activeOpacity={0.7}
-                      onLayout={(e) => {
-                        const { x, y, width, height } = e.nativeEvent.layout;
-                        cardLayouts.current[item.id] = { x: 16 + x, y: 120 + y, width, height };
-                      }}
-                      onPress={() => onSelectList(item.id, layout, true)}
-                      onLongPress={() => {
-                        if (onOpenTimeline) {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                          onOpenTimeline(item.id, item.title, item.iconEmoji);
-                        }
-                      }}
-                    >
-                      <View style={s.partnerBadge}><Text style={s.partnerBadgeText}>👫</Text></View>
-                      <Text style={s.cardIcon}>{item.iconEmoji}</Text>
-                      <Text style={s.cardTitle} numberOfLines={2}>{item.title}</Text>
-                      <View style={s.cardProgressBar}>
-                        <View style={[s.cardProgressFill, { width: `${Math.min(pct, 100)}%`, backgroundColor: '#E8A0BF' }]} />
-                      </View>
-                      <Text style={s.cardCount}>{done}/{total} · {pct}%</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          )}
-
-          {allLists.length === 0 && (!partnerSharedLists || partnerSharedLists.length === 0) ? (
+          {allLists.length === 0 ? (
             <View style={s.empty}>
               <Text style={s.emptyEmoji}>📋</Text>
               <Text style={s.emptyText}>还没有清单</Text>

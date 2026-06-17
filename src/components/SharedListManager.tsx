@@ -6,8 +6,8 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -15,15 +15,15 @@ import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import {
   generateListInvite,
-  joinListByCode,
   getListMembers,
   removeMemberFromList,
   leaveList,
   initListSharing,
+  toggleCoupleTag,
   ListMember,
 } from '../services/couple';
 import { getCurrentUserId } from '../services/auth';
-import { getItemsByList, GoodItem, getAllLists } from '../services/database';
+import { getItemsByList, getAllLists } from '../services/database';
 
 interface Props {
   listId: string;
@@ -36,11 +36,9 @@ export default function SharedListManager({ listId, onBack }: Props) {
   const [myUid, setMyUid] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
-  const [joinCode, setJoinCode] = useState('');
   const [showInvitePanel, setShowInvitePanel] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  const isCouple = members.some(m => m.coupleTag);
+  const [coupleMode, setCoupleMode] = useState(false);
 
   const loadMembers = useCallback(async () => {
     setLoading(true);
@@ -50,6 +48,7 @@ export default function SharedListManager({ listId, onBack }: Props) {
     const list = await getListMembers(listId);
     setMembers(list);
     setIsOwner(list.some(m => m.userId === uid && m.role === 'owner'));
+    setCoupleMode(list.some(m => m.coupleTag === true));
     setLoading(false);
   }, [listId]);
 
@@ -58,35 +57,21 @@ export default function SharedListManager({ listId, onBack }: Props) {
   const handleEnableSharing = async () => {
     const uid = await getCurrentUserId();
     if (!uid) { Alert.alert('请先登录'); return; }
-
-    // 获取清单元数据
     const lists = await getAllLists(uid);
     const list = lists.find(l => l.id === listId);
     if (!list) { Alert.alert('清单不存在'); return; }
-
-    // 获取所有胶囊
     const items = await getItemsByList(listId);
 
     setBusy(true);
     const { error } = await initListSharing(
-      listId,
-      uid,
-      list.title,
-      list.themeType,
-      list.iconEmoji,
-      list.coverColor,
-      list.itemLimit,
-      items.map(i => ({ id: i.id, title: i.title })),
-      list.createdAt,
+      listId, uid, list.title, list.themeType, list.iconEmoji, list.coverColor,
+      list.itemLimit, items.map(i => ({ id: i.id, title: i.title })), list.createdAt,
     );
     setBusy(false);
-
     if (error) { Alert.alert('开启失败', error); return; }
 
-    // 生成邀请码
     const { code, error: codeErr } = await generateListInvite(listId, uid);
     if (codeErr) { Alert.alert('生成失败', codeErr); return; }
-
     setInviteCode(code || '');
     setShowInvitePanel(true);
     await loadMembers();
@@ -101,19 +86,6 @@ export default function SharedListManager({ listId, onBack }: Props) {
     if (error) { Alert.alert('失败', error); return; }
     setInviteCode(code || '');
     setShowInvitePanel(true);
-  };
-
-  const handleJoinByCode = async () => {
-    if (!joinCode.trim()) { Alert.alert('请输入邀请码'); return; }
-    const uid = await getCurrentUserId();
-    if (!uid) { Alert.alert('请先登录'); return; }
-    setBusy(true);
-    const { error, listId: joinedId } = await joinListByCode(joinCode.trim(), uid);
-    setBusy(false);
-    if (error) { Alert.alert('加入失败', error); return; }
-    setJoinCode('');
-    Alert.alert('加入成功', '你已加入此共享清单');
-    await loadMembers();
   };
 
   const handleRemoveMember = (member: ListMember) => {
@@ -142,7 +114,16 @@ export default function SharedListManager({ listId, onBack }: Props) {
     ]);
   };
 
-  const themeColor = isCouple ? '#E8A0BF' : '#6EB5FF';
+  const handleToggleCouple = async (val: boolean) => {
+    if (!myUid) return;
+    setCoupleMode(val);
+    const { error } = await toggleCoupleTag(listId, myUid, val);
+    if (error) { Alert.alert('失败', error); setCoupleMode(!val); return; }
+    await loadMembers();
+  };
+
+  const hasMembers = members.length > 0;
+  const themeColor = coupleMode ? '#E8A0BF' : '#6EB5FF';
 
   if (loading) return <View style={s.ld}><ActivityIndicator size="large" color="#9BA4B5" /></View>;
 
@@ -150,25 +131,22 @@ export default function SharedListManager({ listId, onBack }: Props) {
     <View style={s.root}>
       <BlurView intensity={60} tint="light" style={s.header}>
         <TouchableOpacity onPress={onBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
-        <Text style={s.ht}>{isCouple ? '💕 伴侣清单' : '👥 共享清单'}</Text>
+        <Text style={s.ht}>{coupleMode ? '💕 伴侣清单' : '👥 共享清单'}</Text>
         <View style={s.bb} />
       </BlurView>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent}>
         {/* 成员列表 */}
-        <Text style={s.sectionTitle}>成员{members.length > 0 ? ` (${members.length})` : ''}</Text>
-        <View style={[s.memberCard, isCouple && s.coupleCard]}>
-          {members.length === 0 ? (
+        <Text style={s.sectionTitle}>成员{hasMembers ? ` (${members.length})` : ''}</Text>
+        <View style={[s.memberCard, coupleMode && s.coupleCard]}>
+          {!hasMembers ? (
             <Text style={s.emptyText}>暂未启用共享</Text>
           ) : (
             members.map(m => (
               <View key={m.userId} style={s.memberRow}>
                 <Text style={s.memberAvatar}>{m.avatarEmoji}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.memberName}>
-                    {m.nickname || '用户'}
-                    {m.coupleTag && <Text style={{ color: '#E8A0BF' }}> 💕</Text>}
-                  </Text>
+                  <Text style={s.memberName}>{m.nickname || '用户'}</Text>
                   <Text style={[s.memberRole, { color: m.role === 'owner' ? '#F39C12' : themeColor }]}>
                     {m.role === 'owner' ? '👑 群主' : '成员'}
                   </Text>
@@ -188,37 +166,34 @@ export default function SharedListManager({ listId, onBack }: Props) {
           )}
         </View>
 
-        {/* 已启用共享：生成新邀请码 + 输入加入码 */}
-        {members.length > 0 && (
+        {/* 已启用：邀请码 + 情侣视觉开关 */}
+        {hasMembers && isOwner && (
           <>
-            {isOwner && (
-              <TouchableOpacity style={[s.btn, { backgroundColor: themeColor }]} onPress={handleNewInvite} disabled={busy}>
-                <Text style={s.btnText}>🔗 生成新邀请码</Text>
-              </TouchableOpacity>
-            )}
-            <View style={s.joinRow}>
-              <TextInput
-                style={s.joinInput}
-                placeholder="输入邀请码加入他人的清单"
-                placeholderTextColor="#B2BEC3"
-                value={joinCode}
-                onChangeText={setJoinCode}
-                keyboardType="number-pad"
-                maxLength={6}
+            <TouchableOpacity style={[s.btn, { backgroundColor: themeColor }]} onPress={handleNewInvite} disabled={busy}>
+              <Text style={s.btnText}>🔗 生成新邀请码</Text>
+            </TouchableOpacity>
+
+            <View style={[s.switchCard, coupleMode && s.switchCardCouple]}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.switchLabel}>💕 情侣视觉模式</Text>
+                <Text style={s.switchHint}>开启后所有成员看到粉色专属标识</Text>
+              </View>
+              <Switch
+                value={coupleMode}
+                onValueChange={handleToggleCouple}
+                trackColor={{ false: '#D1D1D6', true: '#E8A0BF88' }}
+                thumbColor={coupleMode ? '#E8A0BF' : '#FFF'}
               />
-              <TouchableOpacity style={[s.joinBtn, { backgroundColor: themeColor }]} onPress={handleJoinByCode} disabled={busy}>
-                <Text style={s.joinBtnText}>加入</Text>
-              </TouchableOpacity>
             </View>
           </>
         )}
 
         {/* 未启用共享：一键开启 */}
-        {members.length === 0 && (
+        {!hasMembers && (
           <>
             <View style={s.sep} />
             <Text style={s.sectionTitle}>开启共享</Text>
-            <TouchableOpacity style={[s.enableBtn, isCouple && s.enableBtnCouple]} onPress={handleEnableSharing} disabled={busy}>
+            <TouchableOpacity style={s.enableBtn} onPress={handleEnableSharing} disabled={busy}>
               <Text style={s.enableIcon}>🔗</Text>
               <Text style={s.enableText}>开启共享并生成邀请码</Text>
               <Text style={s.enableHint}>邀请好友或伴侣一起管理这个清单</Text>
@@ -227,13 +202,12 @@ export default function SharedListManager({ listId, onBack }: Props) {
         )}
       </ScrollView>
 
-      {/* Invite code modal */}
       <Modal visible={showInvitePanel} transparent animationType="fade">
         <View style={s.modalOverlay}>
-          <View style={[s.modalCard, isCouple && { borderWidth: 2, borderColor: '#E8A0BF44' }]}>
-            <Text style={s.modalTitle}>{isCouple ? '💕 伴侣邀请码' : '🔗 清单邀请码'}</Text>
-            <Text style={[s.inviteCodeBig, isCouple && { color: '#E8A0BF' }]} selectable>{inviteCode}</Text>
-            <Text style={s.inviteHint}>长按复制邀请码发给对方，24小时有效</Text>
+          <View style={[s.modalCard, coupleMode && { borderWidth: 2, borderColor: '#E8A0BF44' }]}>
+            <Text style={s.modalTitle}>{coupleMode ? '💕 邀请码' : '🔗 清单邀请码'}</Text>
+            <Text style={[s.inviteCodeBig, coupleMode && { color: '#E8A0BF' }]} selectable>{inviteCode}</Text>
+            <Text style={s.inviteHint}>长按复制发给对方，15分钟有效</Text>
             <TouchableOpacity style={[s.btn, { backgroundColor: themeColor }]} onPress={() => setShowInvitePanel(false)}>
               <Text style={s.btnText}>完成</Text>
             </TouchableOpacity>
@@ -270,20 +244,23 @@ const s = StyleSheet.create({
   leaveBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(45,52,54,0.06)' },
   leaveText: { fontSize: 12, fontWeight: '600', color: '#7A8A9E' },
   sep: { height: 1, backgroundColor: 'rgba(45,52,54,0.08)', marginVertical: 16 },
-  enableBtn: {
-    backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 16, padding: 20,
-    alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
-  },
-  enableBtnCouple: { borderColor: '#E8A0BF44' },
+  enableBtn: { backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 16, padding: 20, alignItems: 'center' },
   enableIcon: { fontSize: 32, marginBottom: 8 },
   enableText: { fontSize: 15, fontWeight: '700', color: '#2D3436', marginBottom: 4 },
   enableHint: { fontSize: 12, color: '#7A8A9E' },
   btn: { borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 12 },
   btnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
-  joinRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  joinInput: { flex: 1, backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 14, padding: 14, fontSize: 14, color: '#2D3436' },
-  joinBtn: { borderRadius: 14, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center' },
-  joinBtnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
+
+  // 情侣开关
+  switchCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 14, padding: 14,
+    marginBottom: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
+  },
+  switchCardCouple: { borderColor: '#E8A0BF44', backgroundColor: '#FEF5F7' },
+  switchLabel: { fontSize: 14, fontWeight: '700', color: '#2D3436' },
+  switchHint: { fontSize: 11, color: '#7A8A9E', marginTop: 2 },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
   modalCard: { backgroundColor: '#F5F0EB', borderRadius: 24, padding: 28, width: 320, alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '800', color: '#2D3436', marginBottom: 16 },
