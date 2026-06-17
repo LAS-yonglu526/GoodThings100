@@ -155,7 +155,11 @@ export default function App() {
 
       {overlay === 'settings' && (
         <Animated.View style={[s.overlay, { transform: [{ translateX: slideAnim }] }]} {...panResponder.panHandlers}>
-          <SettingsScreen onBack={closeOverlay} />
+          <SettingsScreen
+            onBack={closeOverlay}
+            onOpenSharing={(listId) => openOverlay('sharedManager', listId)}
+            onJoinedList={() => setHomeRefreshKey(k => k + 1)}
+          />
         </Animated.View>
       )}
 

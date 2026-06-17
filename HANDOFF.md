@@ -208,6 +208,49 @@ ALTER PUBLICATION supabase_realtime ADD TABLE shared_memories;
 
 ---
 
+**文档版本**: 9.0
+**生成者**: Cline (Claude)
+
+---
+
+## 11. 迭代记录 2026-06-17 — 共享系统重构：清单级共享 + 伴侣特供视觉
+
+### 架构变更
+| # | 变更项 | 说明 |
+|---|--------|------|
+| 1 | **废弃全局伴侣绑定** | `couples` / `invites` 表函数标记 @deprecated，`getCoupleStatus`/`getCouplePartner`/`unbindCouple`/`createInvite`/`claimInvite` 仅保留兼容 |
+| 2 | **统一为清单级共享** | 新函数 `initListSharing`（增强版）、`generateListInvite`、`joinListByCode`、`getMySharedListsAsOwner`、`getMyJoinedLists`、`unshareList`、`subscribeListMembers` |
+| 3 | **伴侣降级为社交标签** | 不再影响数据权限，仅影响 UI 粉色视觉标识。通过 `couple_tag` 字段标记 |
+| 4 | **Realtime → SQLite 持久化** | `subscribeSharedItems` 的 UPDATE handler 中新增 `updateItemStatus()` 调用，防止重启丢状态 |
+| 5 | **级联清理** | `unshareList` 一次性删除 `list_members` + `list_invites` + `shared_lists` + `shared_items` + `shared_memories` |
+
+### 核心改动文件
+| 文件 | 改动 |
+|------|------|
+| `couple.ts` | 重写：新增 `SharedListSummary` 类型、`initListSharing`（自动推 shared_lists/shared_items）、`getMySharedListsAsOwner`、`getMyJoinedLists`、`unshareList`、`subscribeListMembers`；旧函数全部 @deprecated |
+| `SettingsScreen.tsx` | 重构共享分区：移除旧的「👥 共享清单」hint 卡片和备份/恢复按钮；新增「💕 伴侣」分区（粉色渐变卡片 + 邀请码 modal）；新增「📋 我的共享」按清单展示（成员头像叠堆、最近动态、管理/取消共享入口） |
+| `App.tsx` | SettingsScreen 新增 `onOpenSharing` 回调 → 打开 SharedListManager |
+| `SharedListManager.tsx` | 适配 `initListSharing` 新签名（需传入 title/themeType/items 等）；简化 UI（移除伴侣/小队二选一，改为一键开启 + 生成邀请码）；伴侣模式下成员显示 💕 标签 |
+| `ListHomeScreen.tsx` | 无需改动（props 接口兼容，数据源暂维持 partnerSharedLists 旧数据流） |
+
+### Supabase 表依赖
+需确认以下表已创建：
+- `list_members` (list_id, user_id, role, joined_at, couple_tag)
+- `list_invites` (code, list_id, from_uid, expires_at, claimed_by)
+- `shared_lists` / `shared_items` / `shared_memories`（已有，用于 Realtime 管道）
+
+需执行：
+```sql
+ALTER PUBLICATION supabase_realtime ADD TABLE list_members;
+```
+
+### 踩坑记录
+- SettingsScreen 文件超长（400+ 行），写文件比 replace_in_file 更可靠
+- `initListSharing` 新增多个参数后，`SharedListManager` 需从 SQLite 读取清单元数据和胶囊列表传入
+- 旧 `couples` 表函数保留为 @deprecated 但不能删除——SettingsScreen 的伴侣绑定功能仍在使用
+
+---
+
 **文档版本**: 8.0
 **生成者**: Cline (Claude)
 

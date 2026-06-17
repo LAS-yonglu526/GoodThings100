@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -24,7 +23,7 @@ import {
   ListMember,
 } from '../services/couple';
 import { getCurrentUserId } from '../services/auth';
-import { getCompletedCount, getItemCount, GoodList, getAllLists } from '../services/database';
+import { getItemsByList, GoodItem, getAllLists } from '../services/database';
 
 interface Props {
   listId: string;
@@ -36,12 +35,12 @@ export default function SharedListManager({ listId, onBack }: Props) {
   const [loading, setLoading] = useState(true);
   const [myUid, setMyUid] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
-  const [shareType, setShareType] = useState<'group' | 'couple' | null>(null);
-  const [showTypeModal, setShowTypeModal] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [showInvitePanel, setShowInvitePanel] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const isCouple = members.some(m => m.coupleTag);
 
   const loadMembers = useCallback(async () => {
     setLoading(true);
@@ -56,19 +55,38 @@ export default function SharedListManager({ listId, onBack }: Props) {
 
   useEffect(() => { loadMembers(); }, [loadMembers]);
 
-  const handleEnableSharing = async (type: 'group' | 'couple') => {
-    setShowTypeModal(false);
-    setBusy(true);
+  const handleEnableSharing = async () => {
     const uid = await getCurrentUserId();
-    if (!uid) { setBusy(false); Alert.alert('请先登录'); return; }
-    // Init sharing if this is the first time
-    const { error: initErr } = await initListSharing(listId, uid);
-    if (initErr) { setBusy(false); Alert.alert('失败', initErr); return; }
-    // Generate invite code
-    const { code, error } = await generateListInvite(listId, uid);
+    if (!uid) { Alert.alert('请先登录'); return; }
+
+    // 获取清单元数据
+    const lists = await getAllLists(uid);
+    const list = lists.find(l => l.id === listId);
+    if (!list) { Alert.alert('清单不存在'); return; }
+
+    // 获取所有胶囊
+    const items = await getItemsByList(listId);
+
+    setBusy(true);
+    const { error } = await initListSharing(
+      listId,
+      uid,
+      list.title,
+      list.themeType,
+      list.iconEmoji,
+      list.coverColor,
+      list.itemLimit,
+      items.map(i => ({ id: i.id, title: i.title })),
+      list.createdAt,
+    );
     setBusy(false);
-    if (error) { Alert.alert('生成失败', error); return; }
-    setShareType(type);
+
+    if (error) { Alert.alert('开启失败', error); return; }
+
+    // 生成邀请码
+    const { code, error: codeErr } = await generateListInvite(listId, uid);
+    if (codeErr) { Alert.alert('生成失败', codeErr); return; }
+
     setInviteCode(code || '');
     setShowInvitePanel(true);
     await loadMembers();
@@ -124,7 +142,6 @@ export default function SharedListManager({ listId, onBack }: Props) {
     ]);
   };
 
-  const isCouple = shareType === 'couple';
   const themeColor = isCouple ? '#E8A0BF' : '#6EB5FF';
 
   if (loading) return <View style={s.ld}><ActivityIndicator size="large" color="#9BA4B5" /></View>;
@@ -148,7 +165,10 @@ export default function SharedListManager({ listId, onBack }: Props) {
               <View key={m.userId} style={s.memberRow}>
                 <Text style={s.memberAvatar}>{m.avatarEmoji}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.memberName}>{m.nickname || '用户'}</Text>
+                  <Text style={s.memberName}>
+                    {m.nickname || '用户'}
+                    {m.coupleTag && <Text style={{ color: '#E8A0BF' }}> 💕</Text>}
+                  </Text>
                   <Text style={[s.memberRole, { color: m.role === 'owner' ? '#F39C12' : themeColor }]}>
                     {m.role === 'owner' ? '👑 群主' : '成员'}
                   </Text>
@@ -193,23 +213,16 @@ export default function SharedListManager({ listId, onBack }: Props) {
           </>
         )}
 
-        {/* 未启用共享：选择类型 */}
-        {members.length === 0 && !shareType && (
+        {/* 未启用共享：一键开启 */}
+        {members.length === 0 && (
           <>
             <View style={s.sep} />
             <Text style={s.sectionTitle}>开启共享</Text>
-            <View style={s.typeRow}>
-              <TouchableOpacity style={s.typeBtn} onPress={() => handleEnableSharing('group')} disabled={busy}>
-                <Text style={s.typeIcon}>👥</Text>
-                <Text style={s.typeLabel}>朋友/小队</Text>
-                <Text style={s.typeHint}>不限人数</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[s.typeBtn, s.typeCoupleBtn]} onPress={() => handleEnableSharing('couple')} disabled={busy}>
-                <Text style={s.typeIcon}>💕</Text>
-                <Text style={s.typeLabel}>伴侣</Text>
-                <Text style={s.typeHint}>上限2人</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={[s.enableBtn, isCouple && s.enableBtnCouple]} onPress={handleEnableSharing} disabled={busy}>
+              <Text style={s.enableIcon}>🔗</Text>
+              <Text style={s.enableText}>开启共享并生成邀请码</Text>
+              <Text style={s.enableHint}>邀请好友或伴侣一起管理这个清单</Text>
+            </TouchableOpacity>
           </>
         )}
       </ScrollView>
@@ -217,9 +230,9 @@ export default function SharedListManager({ listId, onBack }: Props) {
       {/* Invite code modal */}
       <Modal visible={showInvitePanel} transparent animationType="fade">
         <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
+          <View style={[s.modalCard, isCouple && { borderWidth: 2, borderColor: '#E8A0BF44' }]}>
             <Text style={s.modalTitle}>{isCouple ? '💕 伴侣邀请码' : '🔗 清单邀请码'}</Text>
-            <Text style={s.inviteCodeBig} selectable>{inviteCode}</Text>
+            <Text style={[s.inviteCodeBig, isCouple && { color: '#E8A0BF' }]} selectable>{inviteCode}</Text>
             <Text style={s.inviteHint}>长按复制邀请码发给对方，24小时有效</Text>
             <TouchableOpacity style={[s.btn, { backgroundColor: themeColor }]} onPress={() => setShowInvitePanel(false)}>
               <Text style={s.btnText}>完成</Text>
@@ -257,15 +270,14 @@ const s = StyleSheet.create({
   leaveBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(45,52,54,0.06)' },
   leaveText: { fontSize: 12, fontWeight: '600', color: '#7A8A9E' },
   sep: { height: 1, backgroundColor: 'rgba(45,52,54,0.08)', marginVertical: 16 },
-  typeRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  typeBtn: {
-    flex: 1, backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 16, padding: 20,
+  enableBtn: {
+    backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 16, padding: 20,
     alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
   },
-  typeCoupleBtn: { borderColor: '#E8A0BF44' },
-  typeIcon: { fontSize: 32, marginBottom: 8 },
-  typeLabel: { fontSize: 15, fontWeight: '700', color: '#2D3436', marginBottom: 4 },
-  typeHint: { fontSize: 12, color: '#7A8A9E' },
+  enableBtnCouple: { borderColor: '#E8A0BF44' },
+  enableIcon: { fontSize: 32, marginBottom: 8 },
+  enableText: { fontSize: 15, fontWeight: '700', color: '#2D3436', marginBottom: 4 },
+  enableHint: { fontSize: 12, color: '#7A8A9E' },
   btn: { borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 12 },
   btnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   joinRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
