@@ -37,6 +37,9 @@ interface Props {
 
 type LoginMode = 'choose_account' | 'password_login' | 'email_otp' | 'register_set_password' | 'register_set_name';
 
+// 缓存上一次加载的共享清单，避免切换页面闪烁
+let cachedSharedLists: SharedListSummary[] = [];
+
 export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: Props) {
   const [userId, setUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -59,9 +62,8 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
   const [hasPasswordLocal, setHasPasswordLocal] = useState(false);
   const [otpForReset, setOtpForReset] = useState(false);
   const [useBiometrics, setUseBiometrics] = useState(false);
-  const [sharedLists, setSharedLists] = useState<SharedListSummary[]>([]);
+  const [sharedLists, setSharedLists] = useState<SharedListSummary[]>(cachedSharedLists);
   const [sharedLoading, setSharedLoading] = useState(true);
-  const sharedCacheRef = useRef<SharedListSummary[]>([]);
   const [joinCode, setJoinCode] = useState('');
   const [joinBusy, setJoinBusy] = useState(false);
 
@@ -97,7 +99,7 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
         if (p?.hasPassword && !hasPwLocal) { await SecureStore.setItemAsync(`gt100_has_pw_${uid}`, 'true').catch(() => {}); }
         getSavedAccounts().then(setSavedAccounts);
         // 保留旧数据，新数据返回后再覆盖，避免闪烁
-        getMySharedLists(uid).then(data => { setSharedLists(data); sharedCacheRef.current = data; setSharedLoading(false); }).catch(() => setSharedLoading(false));
+        getMySharedLists(uid).then(data => { cachedSharedLists = data; setSharedLists(data); setSharedLoading(false); }).catch(() => setSharedLoading(false));
       } else {
         setProfile(null); setSharedLists([]);
         getSavedAccounts().then(setSavedAccounts);
