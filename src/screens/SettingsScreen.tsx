@@ -94,7 +94,8 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
         const hasPw = hasPwLocal || (p?.hasPassword === true); setHasPasswordLocal(hasPw);
         if (p?.hasPassword && !hasPwLocal) { await SecureStore.setItemAsync(`gt100_has_pw_${uid}`, 'true').catch(() => {}); }
         getSavedAccounts().then(setSavedAccounts);
-        getMySharedLists(uid).then(setSharedLists).catch(() => {});
+        // 保留旧数据，新数据返回后再覆盖，避免闪烁
+        getMySharedLists(uid).then(data => setSharedLists(data)).catch(() => {});
       } else {
         setProfile(null); setSharedLists([]);
         getSavedAccounts().then(setSavedAccounts);

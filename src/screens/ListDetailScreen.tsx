@@ -71,12 +71,10 @@ const GALLERY_STYLES = { fontSize: 18, cardWidth: SW - 44, gap: 12 };
 interface Props {
   listId: string;
   onBack: () => void;
-  partnerUid?: string | null;
   isShared?: boolean;
-  onOpenTimeline?: (title: string, icon: string) => void;
 }
 
-export default function ListDetailScreen({ listId, onBack, partnerUid, isShared, onOpenTimeline }: Props) {
+export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
   const [items, setItems] = useState<GoodItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedItem, setSelectedItem] = useState<GoodItem | null>(null);
@@ -585,13 +583,7 @@ export default function ListDetailScreen({ listId, onBack, partnerUid, isShared,
             <Text style={st.ht} numberOfLines={1}>{listInfo?.iconEmoji} {listInfo?.title}</Text>
             {isSelectMode && <Text style={st.selectCount}>{selectedIds.size} 项已选</Text>}
           </View>
-          {isShared && onOpenTimeline ? (
-            <TouchableOpacity onPress={() => onOpenTimeline(listInfo?.title || '', listInfo?.iconEmoji || '')} style={st.selectBtn}>
-              <Text style={[st.selectBtnText, { color: '#E8A0BF' }]}>回忆</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity onPress={toggleSelectMode} style={st.selectBtn}><Text style={st.selectBtnText}>{isSelectMode ? '完成' : '选择'}</Text></TouchableOpacity>
-          )}
+          <TouchableOpacity onPress={toggleSelectMode} style={st.selectBtn}><Text style={st.selectBtnText}>{isSelectMode ? '完成' : '选择'}</Text></TouchableOpacity>
         </BlurView>
 
         {/* Partner activity toast */}

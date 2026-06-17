@@ -101,7 +101,6 @@ export default function App() {
             listId={selectedListId}
             onBack={closeOverlay}
             isShared={isSharedList}
-            onOpenTimeline={(title, icon) => handleOpenTimeline(selectedListId, title, icon)}
           />
         </Animated.View>
       )}
