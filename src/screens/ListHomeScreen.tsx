@@ -155,7 +155,13 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
     const title = newTitle.trim() || tplTitle.replace(/[\u3000]/g, '').trim();
     const uid = await getCurrentUserId();
     await createList(id, title, tpl.themeType, tpl.iconEmoji, tpl.coverColor, selectedLimit, uid || undefined);
-    if (tpl.items.length > 0) { await bulkInsertItems(id, tpl.items.slice(0, selectedLimit)); }
+    if (tpl.items.length > 0) {
+      // 电影模板保持豆瓣评分顺序，其他模板随机洗牌
+      const pool = selectedTemplate === 'movie'
+        ? [...tpl.items]
+        : [...tpl.items].sort(() => Math.random() - 0.5);
+      await bulkInsertItems(id, pool.slice(0, selectedLimit));
+    }
     setShowCreate(false); setNewTitle('');
     await loadLists();
   };
