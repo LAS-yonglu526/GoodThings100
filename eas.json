@@ -21,7 +21,8 @@
         "image": "latest"
       },
       "android": {
-        "image": "latest"
+        "image": "latest",
+        "buildType": "apk"
       }
     }
   },
