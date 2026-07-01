@@ -29,13 +29,12 @@
       -webkit-backdrop-filter: blur(20px);
     }
     .logo {
-      width: 96px;
-      height: 96px;
+      display: flex; align-items: center; justify-content: center;
+      width: 96px; height: 96px; font-size: 52px;
+      background: linear-gradient(135deg, #FFE0E5, #FFF3CD);
       border-radius: 24px;
-      object-fit: cover;
-      object-position: center;
+      margin: 0 auto 20px auto;
       box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-      margin-bottom: 20px;
     }
     h1 { font-size: 24px; font-weight: 800; margin-bottom: 4px; }
     .ver { font-size: 14px; color: #7A8A9E; margin-bottom: 24px; }
@@ -66,7 +65,7 @@
 </head>
 <body>
   <div class="card">
-<img class="logo" src="assets/icon.png" alt="好事100">
+    <div class="logo">✨</div>
     <h1>好事100</h1>
     <p class="ver">v1.0.0 · Android</p>
     <a class="dl" href="https://expo.dev/artifacts/eas/rCQKvdYfXHXTAw1GB1ZCuGewZuTQkdF7IrJUa6v0bqE.apk">⬇ 下载 APK</a>
