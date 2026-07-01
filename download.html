@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>好事100 - 下载</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #E8ECF1;
+      color: #2D3436;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      background: rgba(255,255,255,0.65);
+      border-radius: 28px;
+      padding: 40px 28px;
+      max-width: 380px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(45,52,54,0.06);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .logo {
+      width: 96px;
+      height: 96px;
+      border-radius: 24px;
+      object-fit: cover;
+      object-position: center;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+      margin-bottom: 20px;
+    }
+    h1 { font-size: 24px; font-weight: 800; margin-bottom: 4px; }
+    .ver { font-size: 14px; color: #7A8A9E; margin-bottom: 24px; }
+    .dl {
+      display: inline-block;
+      background: #2D3436;
+      color: #FFF;
+      font-size: 17px;
+      font-weight: 700;
+      padding: 16px 40px;
+      border-radius: 16px;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 4px 14px rgba(45,52,54,0.2);
+    }
+    .dl:active { transform: scale(0.96); }
+    .steps {
+      margin-top: 28px;
+      text-align: left;
+      background: rgba(0,0,0,0.03);
+      border-radius: 14px;
+      padding: 18px 20px;
+    }
+    .steps p { font-size: 13px; color: #636E72; margin-bottom: 8px; font-weight: 600; }
+    .steps ol { padding-left: 20px; font-size: 13px; color: #636E72; line-height: 1.8; }
+    .footer { margin-top: 24px; font-size: 12px; color: #B2BEC3; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="assets/好事100app.jpg" alt="好事100">
+    <h1>好事100</h1>
+    <p class="ver">v1.0.0 · Android</p>
+    <a class="dl" href="https://expo.dev/artifacts/eas/rCQKvdYfXHXTAw1GB1ZCuGewZuTQkdF7IrJUa6v0bqE.apk">⬇ 下载 APK</a>
+    <div class="steps">
+      <p>安装说明</p>
+      <ol>
+        <li>点击上方按钮下载 APK 文件</li>
+        <li>打开下载的文件，点击"安装"</li>
+        <li>如提示"未知来源"，选择"允许"</li>
+        <li>安装完成后打开 App 登录即可</li>
+      </ol>
+    </div>
+  </div>
+  <p class="footer">100件事 · 100种仪式感</p>
+</body>
+</html>
