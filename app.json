@@ -16,6 +16,7 @@
     },
     "android": {
       "jsEngine": "hermes",
+      "package": "com.hanson601.goodthings100",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
