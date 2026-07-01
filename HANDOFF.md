@@ -1,6 +1,6 @@
 # 好事100 — 项目交接状态文档
 
-> 最后更新: 2026-06-06 21:37 (Asia/Shanghai)
+> 最后更新: 2026-07-01 17:03 (Asia/Shanghai)
 > Expo SDK 54 / React Native 0.81 / TypeScript 5.9
 
 ---
@@ -318,3 +318,25 @@ ALTER PUBLICATION supabase_realtime ADD TABLE list_members;
 - 外部脚本 `fix_all.js` 修改后导致代码严重退化（gallery 变 wrap、✦变📓、检查框出现、✕被删等），通过 `write_to_file` 完整覆盖恢复后叠加新修复
 - `fontSize` 底线已从 `getFluidStyles` 确认：最小值 `Math.max(32, padV*2+fontSize+2)` → fontSize 最低 11（100颗时），但 `padV` 最低 4 已满足 ≥ 0，不再是硬编码
 - 16:42 对话中断后文件被外部退化，19:51 读取 State Snapshot 全量复原
+
+---
+
+## 12. 迭代记录 2026-07-01 — APK 构建准备
+
+### 已完成
+| # | 改动项 | 说明 |
+|---|--------|------|
+| 1 | APK 构建配置 | `app.json` + `eas.json` |
+| 2 | 图标去白边 1024×1024 | `assets/icon.png`, `android-icon-foreground.png` |
+| 3 | 下载页 + 图标 base64 | `download.html`, `embed_icon.js` |
+| 4 | 模板优化 | 恋爱模板 optimizedLoveList, 其他随机洗牌 |
+| 5 | 设置页 UI | 退出登录移至底部/去Emoji/圆点分隔线/cachedSharedLists |
+| 6 | 共享系统重构 | list_members/list_invites/initListSharing/getMySharedLists/unshareList |
+
+### 待完成（阻塞：当前WiFi不通GitHub/Google）
+| # | 操作 | 命令 |
+|---|------|------|
+| 1 | Git Push | `git push -u origin main` — 切换网络后重试 |
+| 2 | APK 构建 | `npx eas build --platform android --profile production` |
+| 3 | 更新下载链接 | 构建完成后改 `download.html` L71 href |
+| 4 | GitHub Pages | Settings → Pages → Save |
