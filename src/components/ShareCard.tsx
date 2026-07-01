@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { captureRef } from 'react-native-view-shot';
-import * as Sharing from 'expo-sharing';
+import { Share } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { GoodList } from '../services/database';
 
@@ -69,7 +69,7 @@ export default function ShareCard({ visible, list, totalCount, doneCount, comple
       if (!r?.current) { setCapturing(false); return; }
       const uri = await captureRef(r.current, { format: 'png', quality: 0.95 });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: '分享我的好事清单', UTI: 'public.png' });
+      await Share.share({ message: '', url: uri });
     } catch (e: any) {
       if (!e?.message?.includes('cancel')) { /* silently ignore */ }
     } finally {
