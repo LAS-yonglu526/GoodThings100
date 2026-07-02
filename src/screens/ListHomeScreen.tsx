@@ -48,16 +48,15 @@ function FloatingOrb({ size, color, startX, startY, durX, durY }: typeof ORBS[nu
   const posX = useRef(new Animated.Value(startX * SW)).current;
   const posY = useRef(new Animated.Value(startY * SH)).current;
   useEffect(() => {
-    const loopX = () => {
-      const toVal = (Math.random() * 0.7 + 0.15) * SW;
-      Animated.timing(posX, { toValue: toVal, duration: durX + Math.random() * 10000, useNativeDriver: true }).start(() => loopX());
-    };
-    const loopY = () => {
-      const toVal = (Math.random() * 0.7 + 0.1) * SH;
-      Animated.timing(posY, { toValue: toVal, duration: durY + Math.random() * 10000, useNativeDriver: true }).start(() => loopY());
-    };
-    loopX();
-    loopY();
+    const nextX = () => (0.1 + Math.random() * 0.8) * SW;
+    const nextY = () => (0.05 + Math.random() * 0.75) * SH;
+    const segX = () => Animated.timing(posX, { toValue: nextX(), duration: durX, useNativeDriver: true });
+    const segY = () => Animated.timing(posY, { toValue: nextY(), duration: durY, useNativeDriver: true });
+    let active = true;
+    const runX = () => { if (active) segX().start(() => runX()); };
+    const runY = () => { if (active) segY().start(() => runY()); };
+    runX(); runY();
+    return () => { active = false; posX.stopAnimation(); posY.stopAnimation(); };
   }, []);
   return (
     <Animated.View style={{ position: 'absolute', width: size, height: size, borderRadius: size / 2, backgroundColor: color, opacity: 0.45, transform: [{ translateX: posX }, { translateY: posY }] }} />
