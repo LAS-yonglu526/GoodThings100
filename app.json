@@ -38,6 +38,14 @@
         "projectId": "7e13f854-1cd7-48ea-841e-75c9b4809b47"
       }
     },
-    "owner": "hanson601"
+    "owner": "hanson601",
+    "updates": {
+      "url": "https://u.expo.dev/7e13f854-1cd7-48ea-841e-75c9b4809b47",
+      "enabled": true,
+      "fallbackToCacheTimeout": 3000
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    }
   }
 }

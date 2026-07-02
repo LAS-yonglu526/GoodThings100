@@ -23,7 +23,8 @@
       "android": {
         "image": "latest",
         "buildType": "apk"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {
