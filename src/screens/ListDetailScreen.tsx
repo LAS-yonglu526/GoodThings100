@@ -773,18 +773,21 @@ export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
         const ly = layoutMapRef.current.get(menuItemId);
         const menuTop = ly ? scrollTopRef.current + ly.y - scrollYRef.current + ly.h + 8 : SH * 0.35;
         const hasMem = !!(menuItem.memoryText || (menuItem.mediaUris && menuItem.mediaUris !== '[]' && menuItem.mediaUris !== ''));
+        const closeMenu = () => { setMenuItemId(null); menuItemIdRef.current = null; stopGlow(); };
         return (
-          <BlurView intensity={80} tint="light" style={[st.menuFloat, { top: menuTop, bottom: undefined }]}>
-            <TouchableOpacity style={st.menuBtn} onPress={() => handleMenuAction('edit')}>
-              <Text style={st.menuBtnText}>✏️ 编辑</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={st.menuBtn} onPress={() => handleMenuAction('memory')}>
-              <Text style={st.menuBtnText}>{hasMem ? '📝 手记' : '📝 添加手记'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[st.menuBtn, st.menuDelBtn]} onPress={() => handleMenuAction('delete')}>
-              <Text style={[st.menuBtnText, { color: '#FF3B30' }]}>🗑 删除</Text>
-            </TouchableOpacity>
-          </BlurView>
+          <TouchableOpacity activeOpacity={1} onPress={closeMenu} style={st.menuBackdrop}>
+            <BlurView intensity={80} tint="light" style={[st.menuFloat, { top: menuTop, bottom: undefined }]}>
+              <TouchableOpacity style={st.menuBtn} onPress={() => handleMenuAction('edit')}>
+                <Text style={st.menuBtnText}>✏️ 编辑</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={st.menuBtn} onPress={() => handleMenuAction('memory')}>
+                <Text style={st.menuBtnText}>{hasMem ? '📝 手记' : '📝 添加手记'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[st.menuBtn, st.menuDelBtn]} onPress={() => handleMenuAction('delete')}>
+                <Text style={[st.menuBtnText, { color: '#FF3B30' }]}>🗑 删除</Text>
+              </TouchableOpacity>
+            </BlurView>
+          </TouchableOpacity>
         );
       })()}
 
@@ -882,6 +885,7 @@ const st = StyleSheet.create({
   },
   menuBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 14, backgroundColor: 'rgba(45,52,54,0.08)' },
   menuDelBtn: { backgroundColor: 'rgba(255,59,48,0.1)' },
+  menuBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 980 },
   menuBtnText: { fontSize: 14, fontWeight: '700', color: '#2D3436' },
   dropIndicator: { position: 'absolute', borderRadius: 3, backgroundColor: '#E8A0BF', zIndex: 998 },
 });
