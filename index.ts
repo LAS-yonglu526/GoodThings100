@@ -1,3 +1,8 @@
+/**
+ * @copyright 2025 L.A.S 庸禄 (LAS-yonglu526). All rights reserved.
+ * 好事100 (GoodThings100) — 数字清单 App
+ */
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';

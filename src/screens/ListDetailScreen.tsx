@@ -1,3 +1,8 @@
+/**
+ * @copyright 2025 L.A.S 庸禄 (LAS-yonglu526). All rights reserved.
+ * 好事100 (GoodThings100) — 数字清单 App
+ */
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,7 +21,7 @@ import {
   UIManager,
   View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+import GlassView, { SAFE_TOP } from '../components/GlassView';
 import * as Haptics from 'expo-haptics';
 import {
   initDatabase, getItemsByList, updateItemStatus, updateItemTitle, deleteItem, addItem, getAllLists, updateListItemLimit, GoodItem, GoodList,
@@ -105,7 +110,7 @@ export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
   const menuItemIdRef = useRef<string | null>(null);
 
   const layoutMapRef = useRef<Map<string, { y: number; h: number; x: number; w: number }>>(new Map());
-  const scrollTopRef = useRef(Platform.OS === 'ios' ? 130 : 100);
+  const scrollTopRef = useRef(SAFE_TOP + 76);
   const scrollLeftRef = useRef(0);
   const scrollYRef = useRef(0);
 
@@ -583,14 +588,14 @@ export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
     <View style={st.r} {...dragPanResponder.panHandlers} onTouchStart={e => { dragStartPageX.current = e.nativeEvent.pageX; dragStartPageY.current = e.nativeEvent.pageY; }}>
       {ORBS.map((o, i) => <FloatingOrb key={i} {...o} />)}
       <View style={st.s}>
-        <BlurView intensity={70} tint="light" style={st.h}>
+        <GlassView intensity={70} tint="light" style={st.h}>
           <TouchableOpacity onPress={() => { if (isSelectMode) toggleSelectMode(); else handleBack(); }} style={st.bb}><Text style={st.bt}>{isSelectMode ? '✕' : '←'}</Text></TouchableOpacity>
           <View style={st.hc}>
             <Text style={st.ht} numberOfLines={1}>{listInfo?.iconEmoji} {listInfo?.title}</Text>
             {isSelectMode && <Text style={st.selectCount}>{selectedIds.size} 项已选</Text>}
           </View>
           <TouchableOpacity onPress={toggleSelectMode} style={st.selectBtn}><Text style={st.selectBtnText}>{isSelectMode ? '完成' : '选择'}</Text></TouchableOpacity>
-        </BlurView>
+        </GlassView>
 
         {/* Partner activity toast */}
         {partnerToast ? (
@@ -692,16 +697,16 @@ export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
 
         {batchRendered && (
           <Animated.View style={[st.batchBarWrap, { opacity: batchActionFade, transform: [{ translateY: batchActionSlide }] }]}>
-            <BlurView intensity={80} tint="light" style={st.batchBar}>
+            <GlassView intensity={80} tint="light" style={st.batchBar}>
               <TouchableOpacity style={st.batchBtn} onPress={batchComplete}><Text style={[st.batchBtnText, { color: '#27AE60' }]}>✓ 批量完成</Text></TouchableOpacity>
               <TouchableOpacity style={[st.batchBtn, st.batchDelBtn]} onPress={batchDelete}><Text style={[st.batchBtnText, { color: '#FF3B30' }]}>🗑 删除</Text></TouchableOpacity>
-            </BlurView>
+            </GlassView>
           </Animated.View>
         )}
 
         {undoRendered && (
           <Animated.View style={[st.undoOuterWrap, { opacity: undoOuterFade, transform: [{ translateY: undoOuterSlide }] }]}>
-            <BlurView intensity={85} tint="light" style={st.undoBar}>
+            <GlassView intensity={85} tint="light" style={st.undoBar}>
               {batchUndoLabel ? (
                 <Animated.View style={{ flexDirection: 'row', alignItems: 'center', opacity: batchUndoFade, transform: [{ translateY: batchUndoSlide }] }}>
                   <Text style={st.undoText}>{batchUndoLabel}</Text>
@@ -713,7 +718,7 @@ export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
                   <TouchableOpacity onPress={() => { const p = undoItems!; setUndoItems(null); setItems(p); LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); }} style={st.undoBtn}><Text style={st.undoBtnText}>撤销</Text></TouchableOpacity>
                 </Animated.View>
               ) : null}
-            </BlurView>
+            </GlassView>
           </Animated.View>
         )}
 
@@ -776,7 +781,7 @@ export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
         const closeMenu = () => { setMenuItemId(null); menuItemIdRef.current = null; stopGlow(); };
         return (
           <TouchableOpacity activeOpacity={1} onPress={closeMenu} style={st.menuBackdrop}>
-            <BlurView intensity={80} tint="light" style={[st.menuFloat, { top: menuTop, bottom: undefined }]}>
+            <GlassView intensity={80} tint="light" style={[st.menuFloat, { top: menuTop, bottom: undefined }]}>
               <TouchableOpacity style={st.menuBtn} onPress={() => handleMenuAction('edit')}>
                 <Text style={st.menuBtnText}>✏️ 编辑</Text>
               </TouchableOpacity>
@@ -786,7 +791,7 @@ export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
               <TouchableOpacity style={[st.menuBtn, st.menuDelBtn]} onPress={() => handleMenuAction('delete')}>
                 <Text style={[st.menuBtnText, { color: '#FF3B30' }]}>🗑 删除</Text>
               </TouchableOpacity>
-            </BlurView>
+            </GlassView>
           </TouchableOpacity>
         );
       })()}
@@ -800,7 +805,7 @@ export default function ListDetailScreen({ listId, onBack, isShared }: Props) {
 const st = StyleSheet.create({
   r: { flex: 1, backgroundColor: '#E8ECF1' },
   ld: { flex: 1, backgroundColor: '#E8ECF1', alignItems: 'center', justifyContent: 'center' },
-  s: { flex: 1, paddingTop: Platform.OS === 'ios' ? 54 : 30 },
+  s: { flex: 1, paddingTop: SAFE_TOP },
   h: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 14, paddingVertical: 8, marginHorizontal: 12, marginBottom: 4,

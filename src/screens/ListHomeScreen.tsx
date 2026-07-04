@@ -1,3 +1,8 @@
+/**
+ * @copyright 2025 L.A.S 庸禄 (LAS-yonglu526). All rights reserved.
+ * 好事100 (GoodThings100) — 数字清单 App
+ */
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,7 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+import GlassView, { SAFE_TOP } from '../components/GlassView';
 import * as Haptics from 'expo-haptics';
 import {
   initDatabase,
@@ -197,10 +202,10 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
     <View style={s.root}>
       {ORBS.map((orb, i) => <FloatingOrb key={i} {...orb} />)}
       <View style={s.safeArea}>
-        <BlurView intensity={60} tint="light" style={s.header}>
+        <GlassView intensity={60} tint="light" style={s.header}>
           <Text style={s.headerGreeting}>{allLists.length === 0 ? '创建你的第一个清单 ✨' : `${allLists.length} 个清单`}</Text>
           <TouchableOpacity style={s.settingsBtn} onPress={onGoSettings}><Text style={s.settingsIcon}>⚙️</Text></TouchableOpacity>
-        </BlurView>
+        </GlassView>
         <ScrollView style={s.scrollArea} contentContainerStyle={s.gridScrollContent} showsVerticalScrollIndicator={false}>
           {allLists.length === 0 ? (
             <View style={s.empty}><Text style={s.emptyEmoji}>📋</Text><Text style={s.emptyText}>还没有清单</Text></View>
@@ -281,7 +286,7 @@ export default function ListHomeScreen({ refreshKey, onSelectList, onGoSettings,
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#E8ECF1' },
   loading: { flex: 1, backgroundColor: '#E8ECF1', alignItems: 'center', justifyContent: 'center' },
-  safeArea: { flex: 1, paddingTop: Platform.OS === 'ios' ? 54 : 30 },
+  safeArea: { flex: 1, paddingTop: SAFE_TOP },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, marginHorizontal: 12, marginBottom: 6, borderRadius: 32, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.55)' },
   headerGreeting: { fontSize: 15, color: '#636E72', fontWeight: '600' },
   settingsBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(45,52,54,0.06)', alignItems: 'center', justifyContent: 'center' },

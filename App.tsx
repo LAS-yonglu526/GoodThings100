@@ -1,5 +1,10 @@
+/**
+ * @copyright 2025 L.A.S 庸禄 (LAS-yonglu526). All rights reserved.
+ * 好事100 (GoodThings100) — 数字清单 App
+ */
+
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, PanResponder, StyleSheet, View } from 'react-native';
 import ListHomeScreen from './src/screens/ListHomeScreen';
 import ListDetailScreen from './src/screens/ListDetailScreen';
@@ -9,6 +14,7 @@ import SharedTimelineScreen from './src/screens/SharedTimelineScreen';
 import SharedListManager from './src/components/SharedListManager';
 import { CardLayout } from './src/screens/ListHomeScreen';
 import { getItemCount, getCompletedCount, getCompletedItemTitles, GoodList } from './src/services/database';
+import { checkAndPromptUpdate } from './src/utils/updateChecker';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -81,6 +87,11 @@ export default function App() {
     setShareDone(done);
     setShareCompletedItems(items);
     setShareVisible(true);
+  }, []);
+
+  // 热更新检测（仅 Android 端生效，iOS 走 App Store 正规流程）
+  useEffect(() => {
+    checkAndPromptUpdate();
   }, []);
 
   return (

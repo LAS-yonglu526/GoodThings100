@@ -1,3 +1,8 @@
+/**
+ * @copyright 2025 L.A.S 庸禄 (LAS-yonglu526). All rights reserved.
+ * 好事100 (GoodThings100) — 数字清单 App
+ */
+
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+import GlassView, { SAFE_TOP } from '../components/GlassView';
 import { fetchMemories, subscribeMemories, SharedMemory } from '../services/couple';
 
 const { width: SW } = Dimensions.get('window');
@@ -49,13 +54,13 @@ export default function SharedTimelineScreen({ listId, listTitle, listIcon, part
   return (
     <View style={s.root}>
       <View style={s.safeArea}>
-        <BlurView intensity={60} tint="light" style={s.header}>
+        <GlassView intensity={60} tint="light" style={s.header}>
           <TouchableOpacity onPress={onBack} style={s.backBtn}>
             <Text style={s.backText}>←</Text>
           </TouchableOpacity>
           <Text style={s.headerLabel}>{listIcon} {listTitle} · 回忆</Text>
           <View style={s.backBtn} />
-        </BlurView>
+        </GlassView>
 
         {loading ? (
           <View style={s.ld}><ActivityIndicator size="large" color="#9BA4B5" /></View>
@@ -96,7 +101,7 @@ export default function SharedTimelineScreen({ listId, listTitle, listIcon, part
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#E8ECF1' },
-  safeArea: { flex: 1, paddingTop: Platform.OS === 'ios' ? 54 : 30 },
+  safeArea: { flex: 1, paddingTop: SAFE_TOP },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingVertical: 8, marginHorizontal: 12,

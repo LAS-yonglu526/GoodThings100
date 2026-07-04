@@ -1,6 +1,6 @@
 # 好事100 — 项目交接状态文档
 
-> 最后更新: 2026-07-01 17:03 (Asia/Shanghai)
+> 最后更新: 2026-07-02 16:23 (Asia/Shanghai)
 > Expo SDK 54 / React Native 0.81 / TypeScript 5.9
 
 ---
@@ -334,9 +334,59 @@ ALTER PUBLICATION supabase_realtime ADD TABLE list_members;
 | 6 | 共享系统重构 | list_members/list_invites/initListSharing/getMySharedLists/unshareList |
 
 ### 待完成（阻塞：当前WiFi不通GitHub/Google）
-| # | 操作 | 命令 |
+| # | 操作 | 状态 |
 |---|------|------|
-| 1 | Git Push | `git push -u origin main` — 切换网络后重试 |
-| 2 | APK 构建 | `npx eas build --platform android --profile production` |
-| 3 | 更新下载链接 | 构建完成后改 `download.html` L71 href |
-| 4 | GitHub Pages | Settings → Pages → Save |
+| 1 | Git Push | ✅ 已完成 |
+| 2 | APK 构建 | ✅ 已完成 (Build dc2b9570, 含 expo-updates) |
+| 3 | 更新下载链接 | ✅ 已更新 |
+| 4 | GitHub Pages | ✅ Boss 手动操作 |
+
+---
+## 13. 迭代记录 2026-07-01/02 — 核心修复：分享、圆球闪烁、长按菜单
+
+### 13.1 expo-sharing 替换
+| # | 改动 | 说明 |
+|---|------|------|
+| 1 | 删除 `expo-sharing` 依赖 | 彻底从 package.json 移除 |
+| 2 | `ShareCard.tsx` / `ShareModal.tsx` | `expo-sharing` → `Share.share({ url })` (RN 核心 API) |
+| 3 | iOS 影响 | 零影响，RN Share API 双端通用 |
+
+### 13.2 FloatingOrb 圆球闪烁修复
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | 固定 duration，去除 `Math.random() * 10000` 随机抖动 | `ListHomeScreen.tsx`, `ListDetailScreen.tsx` |
+| 2 | 预随机目标 `nextX()/nextY()` 替代自递归 | 同上 |
+| 3 | 卸载清理 `stopAnimation()` 防止内存泄漏 | 同上 |
+| 4 | `ListDetailScreen` 额外修复 `useNativeDriver: false → true` | `ListDetailScreen.tsx` |
+
+### 13.3 长按菜单过早消失修复（两轮迭代）
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | 拖拽触发阈值 `totalMove > 10` → `25` | `ListDetailScreen.tsx` |
+| 2 | 松手不再自动关闭菜单（删除 release 中的 `setMenuItemId(null)`） | 同上 |
+| 3 | 添加透明蒙层 `menuBackdrop`，点击空白处关闭菜单 | 同上 + StyleSheet |
+
+**根因分析**：红米 Turbo3 等 480Hz 触控采样率设备，手指微颤在 `totalMove > 10` 阈值下被误判为拖拽 → 菜单过早关闭。iPhone 240Hz 采样率不会触发此问题。
+
+### 13.4 EAS Update 热更新体系
+| # | 改动 | 说明 |
+|---|------|------|
+| 1 | 安装 `expo-updates` SDK 54 兼容版 | `npx expo install expo-updates` |
+| 2 | `app.json` 添加 `updates.url` + `runtimeVersion` | 指向 `u.expo.dev/7e13f854...` |
+| 3 | `eas.json` 添加 `channel: "production"` | production build |
+| 4 | OTA 发布 | `npx eas update --platform ios/android --branch production --message ...` |
+| 5 | 用户打开 App 自动接收更新 | 无需重装 APK |
+
+### 13.5 APK 构建历程
+| 次序 | Build ID | 说明 |
+|------|----------|------|
+| 1 | `1da134dd` | expo-sharing 移除后的首次构建 |
+| 2 | `362d8687` | expo-updates@57 版本不兼容 → 构建失败 |
+| 3 | `dc2b9570` | expo-updates SDK 54 兼容版 → 成功 |
+
+### 踩坑记录
+- `expo-updates@57` 与 SDK 54 不兼容 → 用 `npx expo install` 自动选正确版本
+- `eas update --platform android,ios` 不支持 → 需分别执行
+- `--message "中文"` cmd 解析失败 → 用英文短消息
+- Web bundle 因 `expo-sqlite` 缺少 `.wasm` 文件失败 → 用 `--platform ios/android` 跳过 Web
+- PowerShell `&&` 不支持 → 用 `;` 替代

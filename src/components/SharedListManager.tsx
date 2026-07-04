@@ -1,3 +1,8 @@
+/**
+ * @copyright 2025 L.A.S 庸禄 (LAS-yonglu526). All rights reserved.
+ * 好事100 (GoodThings100) — 数字清单 App
+ */
+
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,7 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+import GlassView, { SAFE_TOP } from '../components/GlassView';
 import * as Haptics from 'expo-haptics';
 import {
   generateListInvite,
@@ -130,11 +135,11 @@ export default function SharedListManager({ listId, onBack }: Props) {
 
   return (
     <View style={s.root}>
-      <BlurView intensity={60} tint="light" style={s.header}>
+      <GlassView intensity={60} tint="light" style={s.header}>
         <TouchableOpacity onPress={onBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
         <Text style={s.ht}>{coupleMode ? '💕 伴侣清单' : '👥 共享清单'}</Text>
         <View style={s.bb} />
-      </BlurView>
+      </GlassView>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent}>
         {/* 成员列表 */}
@@ -220,7 +225,7 @@ export default function SharedListManager({ listId, onBack }: Props) {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#E8ECF1', paddingTop: Platform.OS === 'ios' ? 54 : 30 },
+  root: { flex: 1, backgroundColor: '#E8ECF1', paddingTop: SAFE_TOP },
   ld: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

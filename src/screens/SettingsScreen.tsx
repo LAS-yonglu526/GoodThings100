@@ -1,3 +1,8 @@
+/**
+ * @copyright 2025 L.A.S 庸禄 (LAS-yonglu526). All rights reserved.
+ * 好事100 (GoodThings100) — 数字清单 App
+ */
+
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -12,7 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+import GlassView, { SAFE_TOP } from '../components/GlassView';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import {
@@ -231,11 +236,11 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
   return (
     <View style={ss.root}>
       <View style={ss.safeArea}>
-        <BlurView intensity={60} tint="light" style={ss.header}>
+        <GlassView intensity={60} tint="light" style={ss.header}>
           <TouchableOpacity onPress={onBack} style={ss.backBtn}><Text style={ss.backText}>←</Text></TouchableOpacity>
           <Text style={ss.headerLabel}>设置</Text>
           <View style={ss.backBtn} />
-        </BlurView>
+        </GlassView>
 
         <ScrollView style={ss.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
           {/* 账号 */}
@@ -389,7 +394,7 @@ export default function SettingsScreen({ onBack, onOpenSharing, onJoinedList }: 
 
 const ss = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#E8ECF1' },
-  safeArea: { flex: 1, paddingTop: Platform.OS === 'ios' ? 54 : 30 },
+  safeArea: { flex: 1, paddingTop: SAFE_TOP },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, marginHorizontal: 12, borderRadius: 32, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.55)' },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }, backText: { fontSize: 20, color: '#2D3436', fontWeight: '600' }, headerLabel: { fontSize: 17, fontWeight: '700', color: '#2D3436' },
   content: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
